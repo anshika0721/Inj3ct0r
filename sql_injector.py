@@ -35,6 +35,7 @@ class SQLInjector:
         # Initialize request engine
         request_config = self.config.get_request_config()
         self.request_engine = RequestEngine(
+            url="",  # URL will be set later in run() method
             timeout=request_config["timeout"],
             verify_ssl=request_config["verify_ssl"],
             headers=request_config["headers"]
