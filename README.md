@@ -1,40 +1,57 @@
 # Inj3ct0r
 
-# Advanced SQL Injection Testing and Exploitation Tool
+# Advanced SQL Injection Testing Tool
 
-A Python-based command-line tool for detecting, testing, and exploiting SQL injection vulnerabilities in web applications. This tool supports various SQL injection techniques and can help identify and exploit potential security issues in your web applications.
+A comprehensive SQL injection testing tool that supports multiple injection techniques, WAF detection and bypass, and detailed reporting.
 
 ## Features
 
-- Support for both GET and POST methods
 - Multiple SQL injection techniques:
-  - Error-based SQL injection
-  - Boolean-based blind SQL injection
-  - Time-based blind SQL injection
-  - Union-based SQL injection
-  - Stacked queries
-- Database fingerprinting and enumeration:
-  - MySQL, PostgreSQL, MSSQL, SQLite support
-  - Database version detection
-  - Table and column enumeration
-  - Data extraction
-- Advanced exploitation features:
-  - Web shell upload (PHP, ASP, JSP)
-  - OS shell access
-  - Database dumping
-  - Custom payload support
-- WAF evasion techniques:
-  - Random User-Agent
-  - Custom headers and cookies
-  - Request timing control
-  - Payload encoding
-- Colored output for better readability
-- JSON output support
+  - Error-based injection
+  - Union-based injection
+  - Blind injection
+  - Time-based injection
+  - Stacked queries injection
+
+- WAF detection and bypass:
+  - Automatic WAF detection
+  - Multiple bypass techniques
+  - Confidence scoring
+
+- Database support:
+  - MySQL
+  - PostgreSQL
+  - MSSQL
+  - SQLite
+
+- Output formats:
+  - JSON
+  - HTML
+  - Text
+
+- Additional features:
+  - Configurable request settings
+  - Detailed logging
+  - Progress tracking
+  - Vulnerability reporting
+  - Statistics collection
 
 ## Installation
 
-1. Clone this repository
-2. Install the required dependencies:
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/sql-injection-tool.git
+cd sql-injection-tool
+```
+
+2. Create a virtual environment (optional but recommended):
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -46,71 +63,73 @@ Basic usage:
 python sql_injector.py -u "http://example.com/page.php?id=1"
 ```
 
-### Command Line Arguments
-
-#### Basic Options
-- `-u, --url`: Target URL (required)
-- `-m, --method`: HTTP method (GET or POST, default: GET)
-- `-H, --headers`: Custom headers in JSON format
-- `-c, --cookies`: Custom cookies in JSON format
-- `-d, --data`: POST data in JSON format
-- `-p, --proxy`: Proxy URL (e.g., http://127.0.0.1:8080)
-- `-o, --output`: Output file path
-- `-f, --format`: Output format (text or json, default: text)
-- `-v, --verbose`: Enable verbose output
-- `--timeout`: Request timeout in seconds (default: 30)
-- `--no-ssl-verify`: Disable SSL certificate verification
-- `--payload-file`: Custom payload file (JSON format)
-
-#### Advanced Options
-- `--exploit`: Enable exploitation mode
-- `--dbms`: Specify target DBMS (MySQL, PostgreSQL, MSSQL, SQLite)
-- `--dump`: Dump database contents
-- `--tables`: Enumerate database tables
-- `--columns`: Enumerate table columns
-- `--shell`: Attempt to upload a web shell
-- `--os-shell`: Attempt to get an OS shell
-- `--batch`: Never ask for user input, use the default behavior
-- `--random-agent`: Use randomly selected User-Agent header value
-- `--level`: Level of tests to perform (1-5, default: 1)
-- `--risk`: Risk of tests to perform (1-3, default: 1)
-- `--technique`: SQL injection techniques to use (B=Boolean, E=Error, U=Union, S=Stacked, T=Time-based, Q=Query)
-
-### Examples
-
-1. Basic test with custom headers:
+Specify injection techniques:
 ```bash
-python sql_injector.py -u "http://example.com/page.php?id=1" -H '{"User-Agent": "Mozilla/5.0"}'
+python sql_injector.py -u "http://example.com/page.php?id=1" -t error union blind
 ```
 
-2. POST request with data:
+Set output format and file:
 ```bash
-python sql_injector.py -u "http://example.com/login.php" -m POST -d '{"username": "test", "password": "test"}'
+python sql_injector.py -u "http://example.com/page.php?id=1" -f html -o results.html
 ```
 
-3. Database enumeration:
+Specify target DBMS:
 ```bash
-python sql_injector.py -u "http://example.com/page.php?id=1" --dbms MySQL --tables --columns
+python sql_injector.py -u "http://example.com/page.php?id=1" --dbms mysql
 ```
 
-4. Exploitation with shell upload:
+Disable WAF detection:
 ```bash
-python sql_injector.py -u "http://example.com/page.php?id=1" --dbms MySQL --exploit --shell
+python sql_injector.py -u "http://example.com/page.php?id=1" --no-waf
 ```
 
-5. Advanced exploitation with specific technique:
+Set request timeout and threads:
 ```bash
-python sql_injector.py -u "http://example.com/page.php?id=1" --dbms MySQL --exploit --technique U --dump
+python sql_injector.py -u "http://example.com/page.php?id=1" --timeout 60 --threads 20
 ```
+
+Enable verbose output:
+```bash
+python sql_injector.py -u "http://example.com/page.php?id=1" --verbose
+```
+
+## Configuration
+
+The tool uses a JSON configuration file (`config.json`) for default settings. You can create a custom configuration file and specify it using the `-c` option:
+
+```bash
+python sql_injector.py -u "http://example.com/page.php?id=1" -c custom_config.json
+```
+
+Configuration sections:
+- `request`: Request settings (timeout, SSL, headers)
+- `injection`: Injection settings (techniques, parameters)
+- `waf`: WAF settings (detection, bypass)
+- `database`: Database settings (types, ports)
+- `logging`: Logging settings (level, file)
+- `output`: Output settings (format, file)
+
+## Output
+
+The tool generates detailed reports in the selected format (JSON, HTML, or text) containing:
+- Scan information
+- WAF detection results
+- Database information
+- Vulnerability details
+- Test statistics
 
 ## Security Notice
 
-This tool is intended for security testing and educational purposes only. Always:
-- Obtain proper authorization before testing any website
-- Use responsibly and ethically
-- Do not use for malicious purposes
-- Follow applicable laws and regulations
+This tool is designed for security testing and educational purposes only. Always:
+1. Obtain proper authorization before testing any system
+2. Follow responsible disclosure practices
+3. Respect privacy and data protection laws
+4. Use the tool ethically and responsibly
 
-## Disclaimer
+## License
 
-The authors of this tool are not responsible for any misuse or damage caused by this program. Users are responsible for complying with all applicable laws and regulations when using this tool. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. 
