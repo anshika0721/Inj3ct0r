@@ -32,10 +32,11 @@ class SQLInjector:
             self.config.get_value("output", "format")
         )
         
-        # Initialize request engine
+        # Initialize request engine with default URL
         request_config = self.config.get_request_config()
         self.request_engine = RequestEngine(
-            url="",  # URL will be set later in run() method
+            url="http://localhost",  # Default URL, will be updated in run() method
+            method="GET",
             timeout=request_config["timeout"],
             verify_ssl=request_config["verify_ssl"],
             headers=request_config["headers"]
@@ -66,8 +67,8 @@ class SQLInjector:
             self.logger.info(f"Starting SQL injection scan for {url}")
             self.output.start_scan(url, techniques or self.config.get_value("injection", "techniques"))
             
-            # Set target URL
-            self.request_engine.set_url(url)
+            # Update target URL
+            self.request_engine.url = url
             
             # Detect WAF
             if self.config.get_value("waf", "detection"):
