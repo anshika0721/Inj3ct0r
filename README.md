@@ -40,7 +40,7 @@ A comprehensive SQL injection testing tool that supports multiple injection tech
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/sql-injection-tool.git
+git clone https://github.com/anshika0721/Inj3ct0r.git
 cd sql-injection-tool
 ```
 
