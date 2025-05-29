@@ -119,18 +119,18 @@ class SQLInjector:
                 
                 # Update statistics
                 total_tests += len(results)
-                successful_tests += sum(1 for r in results if r["success"])
-                failed_tests += sum(1 for r in results if not r["success"])
+                successful_tests += sum(1 for r in results if r.get("status") == "vulnerable")
+                failed_tests += sum(1 for r in results if r.get("status") != "vulnerable")
                 
                 # Add vulnerabilities
                 for result in results:
-                    if result["success"]:
+                    if result.get("status") == "vulnerable":
                         self.output.add_vulnerability(
                             technique,
                             {
-                                "parameter": result["parameter"],
-                                "payload": result["payload"],
-                                "details": result["details"]
+                                "parameter": result.get("parameter", "unknown"),
+                                "payload": result.get("payload", "unknown"),
+                                "details": result.get("details", {})
                             }
                         )
                         
