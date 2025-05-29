@@ -7,6 +7,11 @@ from typing import Dict, Optional
 from core.request_engine import RequestEngine
 from core.payload_manager import PayloadManager
 from modules.error_based import ErrorBasedInjector
+from modules.blind import BlindInjector
+from modules.time_based import TimeBasedInjector
+from modules.exploitation import ExploitationEngine
+from modules.enumeration import DatabaseEnumerator
+from modules.shell_upload import ShellUploader
 from utils.helpers import (
     setup_logging,
     parse_json_input,
@@ -18,7 +23,7 @@ from utils.helpers import (
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Advanced SQL Injection Testing Tool")
+    parser = argparse.ArgumentParser(description="Advanced SQL Injection Testing and Exploitation Tool")
     
     # Required arguments
     parser.add_argument("-u", "--url", required=True, help="Target URL")
@@ -40,6 +45,32 @@ def parse_arguments():
     parser.add_argument("--no-ssl-verify", action="store_true",
                       help="Disable SSL certificate verification")
     parser.add_argument("--payload-file", help="Custom payload file (JSON format)")
+    
+    # Advanced exploitation options
+    parser.add_argument("--exploit", action="store_true",
+                      help="Enable exploitation mode")
+    parser.add_argument("--dbms", choices=["MySQL", "PostgreSQL", "MSSQL", "SQLite"],
+                      help="Specify target DBMS")
+    parser.add_argument("--dump", action="store_true",
+                      help="Dump database contents")
+    parser.add_argument("--tables", action="store_true",
+                      help="Enumerate database tables")
+    parser.add_argument("--columns", action="store_true",
+                      help="Enumerate table columns")
+    parser.add_argument("--shell", action="store_true",
+                      help="Attempt to upload a web shell")
+    parser.add_argument("--os-shell", action="store_true",
+                      help="Attempt to get an OS shell")
+    parser.add_argument("--batch", action="store_true",
+                      help="Never ask for user input, use the default behavior")
+    parser.add_argument("--random-agent", action="store_true",
+                      help="Use randomly selected User-Agent header value")
+    parser.add_argument("--level", type=int, choices=range(1, 6), default=1,
+                      help="Level of tests to perform (1-5, default: 1)")
+    parser.add_argument("--risk", type=int, choices=range(1, 4), default=1,
+                      help="Risk of tests to perform (1-3, default: 1)")
+    parser.add_argument("--technique", choices=["B", "E", "U", "S", "T", "Q"],
+                      help="SQL injection techniques to use (B=Boolean, E=Error, U=Union, S=Stacked, T=Time-based, Q=Query)")
     
     return parser.parse_args()
 
@@ -71,11 +102,22 @@ def main():
             cookies=cookies,
             proxy=proxy,
             timeout=args.timeout,
-            verify_ssl=not args.no_ssl_verify
+            verify_ssl=not args.no_ssl_verify,
+            random_agent=args.random_agent
         )
         
         payload_manager = PayloadManager(args.payload_file)
+        
+        # Initialize injection modules
         error_injector = ErrorBasedInjector(request_engine, payload_manager)
+        blind_injector = BlindInjector(request_engine, payload_manager)
+        time_injector = TimeBasedInjector(request_engine, payload_manager)
+        
+        # Initialize exploitation components if needed
+        if args.exploit:
+            exploitation_engine = ExploitationEngine(request_engine, payload_manager)
+            db_enumerator = DatabaseEnumerator(request_engine, payload_manager)
+            shell_uploader = ShellUploader(request_engine, payload_manager)
         
         # Run tests
         logging.info(f"Starting SQL injection tests on: {args.url}")
@@ -86,8 +128,35 @@ def main():
         if waf:
             logging.warning(f"Web Application Firewall detected: {waf}")
         
-        # Run error-based tests
-        results = error_injector.test_all_parameters()
+        results = []
+        
+        # Run tests based on technique
+        if not args.technique or 'E' in args.technique:
+            results.extend(error_injector.test_all_parameters())
+        if not args.technique or 'B' in args.technique:
+            results.extend(blind_injector.test_all_parameters())
+        if not args.technique or 'T' in args.technique:
+            results.extend(time_injector.test_all_parameters())
+        
+        # Run exploitation if requested
+        if args.exploit:
+            if args.dbms:
+                exploitation_engine.set_dbms(args.dbms)
+            
+            if args.tables:
+                results.extend(db_enumerator.enumerate_tables())
+            
+            if args.columns:
+                results.extend(db_enumerator.enumerate_columns())
+            
+            if args.dump:
+                results.extend(exploitation_engine.dump_database())
+            
+            if args.shell:
+                results.extend(shell_uploader.upload_web_shell())
+            
+            if args.os_shell:
+                results.extend(exploitation_engine.get_os_shell())
         
         # Format and output results
         output = format_output(results, args.format)
