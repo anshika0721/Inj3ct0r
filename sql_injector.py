@@ -82,19 +82,25 @@ class SQLInjector:
             if self.config.get_value("waf", "detection"):
                 self.logger.info("Detecting WAF...")
                 waf_info = self.waf_detector.detect_waf()
-                self.output.set_waf_info(waf_info)
                 
-                if waf_info["detected"]:
-                    self.logger.warning(f"WAF detected: {waf_info['type']} (Confidence: {waf_info['confidence']}%)")
+                if waf_info and isinstance(waf_info, dict):
+                    self.output.set_waf_info(waf_info)
                     
-                    if self.config.get_value("waf", "bypass"):
-                        self.logger.info("Testing WAF bypass techniques...")
-                        bypass_results = self.waf_detector.test_waf_bypass()
-                        if bypass_results["successful"]:
-                            self.logger.success(f"WAF bypass successful using: {bypass_results['technique']}")
-                        else:
-                            self.logger.warning("No successful WAF bypass found")
-                            
+                    if waf_info.get("waf_detected", False):
+                        self.logger.warning(f"WAF detected: {waf_info.get('waf_type', 'Unknown')} (Confidence: {waf_info.get('confidence', 0)}%)")
+                        
+                        if self.config.get_value("waf", "bypass"):
+                            self.logger.info("Testing WAF bypass techniques...")
+                            bypass_results = self.waf_detector.test_waf_bypass()
+                            if bypass_results and bypass_results.get("successful", False):
+                                self.logger.success(f"WAF bypass successful using: {bypass_results.get('technique', 'Unknown')}")
+                            else:
+                                self.logger.warning("No successful WAF bypass found")
+                    else:
+                        self.logger.info("No WAF detected")
+                else:
+                    self.logger.warning("WAF detection failed or returned invalid results")
+            
             # Run selected techniques
             total_tests = 0
             successful_tests = 0
