@@ -1,178 +1,183 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
-import logging
-from typing import Dict, Optional
+import sys
+from typing import List, Optional
+
+from core.config_manager import ConfigManager
+from core.logger import Logger
+from core.output_manager import OutputManager
 from core.request_engine import RequestEngine
 from core.payload_manager import PayloadManager
+from core.waf_detector import WAFDetector
+from core.db_connector import DatabaseConnector
+
 from modules.error_based import ErrorBasedInjector
+from modules.union_based import UnionBasedInjector
 from modules.blind import BlindInjector
 from modules.time_based import TimeBasedInjector
-from modules.exploitation import ExploitationEngine
-from modules.enumeration import DatabaseEnumerator
-from modules.shell_upload import ShellUploader
-from utils.helpers import (
-    setup_logging,
-    parse_json_input,
-    format_output,
-    detect_waf,
-    sanitize_output,
-    print_banner
-)
+from modules.stacked_queries import StackedQueriesInjector
 
-def parse_arguments():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Advanced SQL Injection Testing and Exploitation Tool")
+class SQLInjector:
+    def __init__(self, config_file: str = "config.json"):
+        """Initialize SQL injector."""
+        # Initialize components
+        self.config = ConfigManager(config_file)
+        self.logger = Logger(
+            self.config.get_value("logging", "file"),
+            self.config.get_value("logging", "level")
+        )
+        self.output = OutputManager(
+            self.config.get_value("output", "file"),
+            self.config.get_value("output", "format")
+        )
+        
+        # Initialize request engine
+        request_config = self.config.get_request_config()
+        self.request_engine = RequestEngine(
+            timeout=request_config["timeout"],
+            verify_ssl=request_config["verify_ssl"],
+            headers=request_config["headers"]
+        )
+        
+        # Initialize payload manager
+        self.payload_manager = PayloadManager()
+        
+        # Initialize WAF detector
+        self.waf_detector = WAFDetector(self.request_engine, self.payload_manager)
+        
+        # Initialize database connector
+        self.db_connector = DatabaseConnector()
+        
+        # Initialize injectors
+        self.injectors = {
+            "error": ErrorBasedInjector(self.request_engine, self.payload_manager),
+            "union": UnionBasedInjector(self.request_engine, self.payload_manager),
+            "blind": BlindInjector(self.request_engine, self.payload_manager),
+            "time": TimeBasedInjector(self.request_engine, self.payload_manager),
+            "stacked": StackedQueriesInjector(self.request_engine, self.payload_manager)
+        }
+        
+    def run(self, url: str, techniques: Optional[List[str]] = None) -> None:
+        """Run SQL injection scan."""
+        try:
+            # Start scan
+            self.logger.info(f"Starting SQL injection scan for {url}")
+            self.output.start_scan(url, techniques or self.config.get_value("injection", "techniques"))
+            
+            # Set target URL
+            self.request_engine.set_url(url)
+            
+            # Detect WAF
+            if self.config.get_value("waf", "detection"):
+                self.logger.info("Detecting WAF...")
+                waf_info = self.waf_detector.detect_waf()
+                self.output.set_waf_info(waf_info)
+                
+                if waf_info["detected"]:
+                    self.logger.warning(f"WAF detected: {waf_info['type']} (Confidence: {waf_info['confidence']}%)")
+                    
+                    if self.config.get_value("waf", "bypass"):
+                        self.logger.info("Testing WAF bypass techniques...")
+                        bypass_results = self.waf_detector.test_waf_bypass()
+                        if bypass_results["successful"]:
+                            self.logger.success(f"WAF bypass successful using: {bypass_results['technique']}")
+                        else:
+                            self.logger.warning("No successful WAF bypass found")
+                            
+            # Run selected techniques
+            total_tests = 0
+            successful_tests = 0
+            failed_tests = 0
+            
+            for technique in (techniques or self.config.get_value("injection", "techniques")):
+                if technique not in self.injectors:
+                    self.logger.warning(f"Unknown technique: {technique}")
+                    continue
+                    
+                self.logger.info(f"Running {technique} injection tests...")
+                injector = self.injectors[technique]
+                
+                # Test all parameters
+                results = injector.test_all_parameters()
+                
+                # Update statistics
+                total_tests += len(results)
+                successful_tests += sum(1 for r in results if r["success"])
+                failed_tests += sum(1 for r in results if not r["success"])
+                
+                # Add vulnerabilities
+                for result in results:
+                    if result["success"]:
+                        self.output.add_vulnerability(
+                            technique,
+                            {
+                                "parameter": result["parameter"],
+                                "payload": result["payload"],
+                                "details": result["details"]
+                            }
+                        )
+                        
+            # Update statistics
+            self.output.update_statistics(total_tests, successful_tests, failed_tests)
+            
+            # End scan
+            self.output.end_scan()
+            self.logger.info("Scan completed")
+            
+            # Save results
+            self.output.save_results()
+            self.logger.info(f"Results saved to {self.config.get_value('output', 'file')}")
+            
+        except Exception as e:
+            self.logger.error(f"Error during scan: {str(e)}")
+            sys.exit(1)
+            
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description="Advanced SQL Injection Testing Tool")
     
     # Required arguments
     parser.add_argument("-u", "--url", required=True, help="Target URL")
     
     # Optional arguments
-    parser.add_argument("-m", "--method", default="GET", choices=["GET", "POST"],
-                      help="HTTP method (default: GET)")
-    parser.add_argument("-H", "--headers", help="Custom headers (JSON format)")
-    parser.add_argument("-c", "--cookies", help="Custom cookies (JSON format)")
-    parser.add_argument("-d", "--data", help="POST data (JSON format)")
-    parser.add_argument("-p", "--proxy", help="Proxy URL (e.g., http://127.0.0.1:8080)")
-    parser.add_argument("-o", "--output", help="Output file path")
-    parser.add_argument("-f", "--format", choices=["text", "json"], default="text",
-                      help="Output format (default: text)")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                      help="Enable verbose output")
-    parser.add_argument("--timeout", type=int, default=30,
-                      help="Request timeout in seconds (default: 30)")
-    parser.add_argument("--no-ssl-verify", action="store_true",
-                      help="Disable SSL certificate verification")
-    parser.add_argument("--payload-file", help="Custom payload file (JSON format)")
+    parser.add_argument("-t", "--techniques", nargs="+", help="Injection techniques to use")
+    parser.add_argument("-c", "--config", default="config.json", help="Configuration file")
+    parser.add_argument("-o", "--output", help="Output file")
+    parser.add_argument("-f", "--format", choices=["json", "html", "txt"], help="Output format")
+    parser.add_argument("--dbms", choices=["mysql", "postgresql", "mssql", "sqlite"], help="Target DBMS")
+    parser.add_argument("--no-waf", action="store_true", help="Disable WAF detection")
+    parser.add_argument("--no-bypass", action="store_true", help="Disable WAF bypass")
+    parser.add_argument("--timeout", type=int, help="Request timeout in seconds")
+    parser.add_argument("--threads", type=int, help="Number of threads")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     
-    # Advanced exploitation options
-    parser.add_argument("--exploit", action="store_true",
-                      help="Enable exploitation mode")
-    parser.add_argument("--dbms", choices=["MySQL", "PostgreSQL", "MSSQL", "SQLite"],
-                      help="Specify target DBMS")
-    parser.add_argument("--dump", action="store_true",
-                      help="Dump database contents")
-    parser.add_argument("--tables", action="store_true",
-                      help="Enumerate database tables")
-    parser.add_argument("--columns", action="store_true",
-                      help="Enumerate table columns")
-    parser.add_argument("--shell", action="store_true",
-                      help="Attempt to upload a web shell")
-    parser.add_argument("--os-shell", action="store_true",
-                      help="Attempt to get an OS shell")
-    parser.add_argument("--batch", action="store_true",
-                      help="Never ask for user input, use the default behavior")
-    parser.add_argument("--random-agent", action="store_true",
-                      help="Use randomly selected User-Agent header value")
-    parser.add_argument("--level", type=int, choices=range(1, 6), default=1,
-                      help="Level of tests to perform (1-5, default: 1)")
-    parser.add_argument("--risk", type=int, choices=range(1, 4), default=1,
-                      help="Risk of tests to perform (1-3, default: 1)")
-    parser.add_argument("--technique", choices=["B", "E", "U", "S", "T", "Q"],
-                      help="SQL injection techniques to use (B=Boolean, E=Error, U=Union, S=Stacked, T=Time-based, Q=Query)")
+    args = parser.parse_args()
     
-    return parser.parse_args()
-
-def main():
-    """Main function."""
-    # Parse arguments
-    args = parse_arguments()
+    # Create SQL injector
+    injector = SQLInjector(args.config)
     
-    # Setup logging
-    setup_logging(args.verbose)
+    # Update configuration from arguments
+    if args.output:
+        injector.config.set_value("output", "file", args.output)
+    if args.format:
+        injector.config.set_value("output", "format", args.format)
+    if args.dbms:
+        injector.config.set_value("database", "type", args.dbms)
+    if args.no_waf:
+        injector.config.set_value("waf", "detection", False)
+    if args.no_bypass:
+        injector.config.set_value("waf", "bypass", False)
+    if args.timeout:
+        injector.config.set_value("request", "timeout", args.timeout)
+    if args.threads:
+        injector.config.set_value("injection", "threads", args.threads)
+    if args.verbose:
+        injector.config.set_value("output", "verbose", True)
+        injector.logger.set_level("DEBUG")
+        
+    # Run scan
+    injector.run(args.url, args.techniques)
     
-    # Print banner
-    print_banner()
-    
-    try:
-        # Parse JSON inputs
-        headers = parse_json_input(args.headers) if args.headers else {}
-        cookies = parse_json_input(args.cookies) if args.cookies else {}
-        data = parse_json_input(args.data) if args.data else {}
-        
-        # Setup proxy if provided
-        proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
-        
-        # Initialize components
-        request_engine = RequestEngine(
-            url=args.url,
-            method=args.method,
-            headers=headers,
-            cookies=cookies,
-            proxy=proxy,
-            timeout=args.timeout,
-            verify_ssl=not args.no_ssl_verify,
-            random_agent=args.random_agent
-        )
-        
-        payload_manager = PayloadManager(args.payload_file)
-        
-        # Initialize injection modules
-        error_injector = ErrorBasedInjector(request_engine, payload_manager)
-        blind_injector = BlindInjector(request_engine, payload_manager)
-        time_injector = TimeBasedInjector(request_engine, payload_manager)
-        
-        # Initialize exploitation components if needed
-        if args.exploit:
-            exploitation_engine = ExploitationEngine(request_engine, payload_manager)
-            db_enumerator = DatabaseEnumerator(request_engine, payload_manager)
-            shell_uploader = ShellUploader(request_engine, payload_manager)
-        
-        # Run tests
-        logging.info(f"Starting SQL injection tests on: {args.url}")
-        
-        # Check for WAF
-        response, _ = request_engine.send_request()
-        waf = detect_waf(response.text)
-        if waf:
-            logging.warning(f"Web Application Firewall detected: {waf}")
-        
-        results = []
-        
-        # Run tests based on technique
-        if not args.technique or 'E' in args.technique:
-            results.extend(error_injector.test_all_parameters())
-        if not args.technique or 'B' in args.technique:
-            results.extend(blind_injector.test_all_parameters())
-        if not args.technique or 'T' in args.technique:
-            results.extend(time_injector.test_all_parameters())
-        
-        # Run exploitation if requested
-        if args.exploit:
-            if args.dbms:
-                exploitation_engine.set_dbms(args.dbms)
-            
-            if args.tables:
-                results.extend(db_enumerator.enumerate_tables())
-            
-            if args.columns:
-                results.extend(db_enumerator.enumerate_columns())
-            
-            if args.dump:
-                results.extend(exploitation_engine.dump_database())
-            
-            if args.shell:
-                results.extend(shell_uploader.upload_web_shell())
-            
-            if args.os_shell:
-                results.extend(exploitation_engine.get_os_shell())
-        
-        # Format and output results
-        output = format_output(results, args.format)
-        
-        if args.output:
-            with open(args.output, 'w') as f:
-                f.write(output)
-        else:
-            print(output)
-        
-    except KeyboardInterrupt:
-        logging.info("\nTest interrupted by user")
-    except Exception as e:
-        logging.error(f"An error occurred: {str(e)}")
-        if args.verbose:
-            logging.exception("Detailed error information:")
-
 if __name__ == "__main__":
     main() 
