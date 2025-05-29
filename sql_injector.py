@@ -48,8 +48,16 @@ class SQLInjector:
         # Initialize WAF detector
         self.waf_detector = WAFDetector(self.request_engine, self.payload_manager)
         
-        # Initialize database connector
-        self.db_connector = DatabaseConnector()
+        # Initialize database connector with default values
+        db_config = self.config.get_database_config()
+        self.db_connector = DatabaseConnector(
+            dbms=db_config.get("type", "mysql"),
+            host=db_config.get("host", "localhost"),
+            port=db_config.get("port", 3306),
+            database=db_config.get("database", ""),
+            username=db_config.get("username", ""),
+            password=db_config.get("password", "")
+        )
         
         # Initialize injectors
         self.injectors = {
