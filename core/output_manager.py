@@ -7,10 +7,12 @@ from datetime import datetime
 from colorama import init, Fore, Style
 import os
 
+# Initialize colorama
+init()
+
 class OutputManager:
     def __init__(self):
         """Initialize output manager."""
-        init()  # Initialize colorama
         self.results = {
             "scan_start": None,
             "scan_end": None,
@@ -134,3 +136,115 @@ class OutputManager:
     def get_results(self) -> Dict[str, Any]:
         """Get current results."""
         return self.results 
+
+    def display_results(self, results: List[Dict]) -> None:
+        """Display scan results with color-coded output."""
+        if not results:
+            print(f"{Fore.YELLOW}No vulnerabilities found.{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== SQL Injection Scan Results ==={Style.RESET_ALL}\n")
+        
+        for result in results:
+            # Color code based on severity
+            severity_color = {
+                "high": Fore.RED,
+                "medium": Fore.YELLOW,
+                "low": Fore.GREEN
+            }.get(result.get("severity", "low"), Fore.WHITE)
+            
+            # Print vulnerability details
+            print(f"{severity_color}Vulnerability Type: {result.get('type', 'Unknown')}{Style.RESET_ALL}")
+            print(f"Parameter: {result.get('parameter', 'Unknown')}")
+            print(f"Payload: {result.get('payload', 'Unknown')}")
+            print(f"Severity: {severity_color}{result.get('severity', 'Unknown')}{Style.RESET_ALL}")
+            if "description" in result:
+                print(f"Description: {result['description']}")
+            print("-" * 50)
+    
+    def export_report(self, results: List[Dict], output_file: str) -> None:
+        """Export scan results to a file."""
+        if not results:
+            logging.warning("No results to export.")
+            return
+        
+        try:
+            # Determine file format from extension
+            if output_file.endswith(".json"):
+                self._export_json(results, output_file)
+            elif output_file.endswith(".html"):
+                self._export_html(results, output_file)
+            else:
+                self._export_text(results, output_file)
+            
+            logging.info(f"Report exported to {output_file}")
+        except Exception as e:
+            logging.error(f"Failed to export report: {str(e)}")
+    
+    def _export_json(self, results: List[Dict], output_file: str) -> None:
+        """Export results in JSON format."""
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=4)
+    
+    def _export_html(self, results: List[Dict], output_file: str) -> None:
+        """Export results in HTML format."""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>SQL Injection Scan Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .vulnerability { margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; }
+                .high { background-color: #ffebee; }
+                .medium { background-color: #fff3e0; }
+                .low { background-color: #e8f5e9; }
+                h1 { color: #2196f3; }
+                .severity { font-weight: bold; }
+                .high-severity { color: #f44336; }
+                .medium-severity { color: #ff9800; }
+                .low-severity { color: #4caf50; }
+            </style>
+        </head>
+        <body>
+            <h1>SQL Injection Scan Report</h1>
+        """
+        
+        for result in results:
+            severity_class = result.get("severity", "low").lower()
+            html += f"""
+            <div class="vulnerability {severity_class}">
+                <h2>Vulnerability Type: {result.get('type', 'Unknown')}</h2>
+                <p><strong>Parameter:</strong> {result.get('parameter', 'Unknown')}</p>
+                <p><strong>Payload:</strong> {result.get('payload', 'Unknown')}</p>
+                <p><strong>Severity:</strong> <span class="severity {severity_class}-severity">{result.get('severity', 'Unknown')}</span></p>
+            """
+            
+            if "description" in result:
+                html += f"<p><strong>Description:</strong> {result['description']}</p>"
+            
+            html += "</div>"
+        
+        html += """
+        </body>
+        </html>
+        """
+        
+        with open(output_file, "w") as f:
+            f.write(html)
+    
+    def _export_text(self, results: List[Dict], output_file: str) -> None:
+        """Export results in plain text format."""
+        with open(output_file, "w") as f:
+            f.write("=== SQL Injection Scan Report ===\n\n")
+            
+            for result in results:
+                f.write(f"Vulnerability Type: {result.get('type', 'Unknown')}\n")
+                f.write(f"Parameter: {result.get('parameter', 'Unknown')}\n")
+                f.write(f"Payload: {result.get('payload', 'Unknown')}\n")
+                f.write(f"Severity: {result.get('severity', 'Unknown')}\n")
+                
+                if "description" in result:
+                    f.write(f"Description: {result['description']}\n")
+                
+                f.write("-" * 50 + "\n") 
