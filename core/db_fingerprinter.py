@@ -49,8 +49,8 @@ class DatabaseFingerprinter:
                     "ODBC SQL Server Driver",
                     "SQLServerException",
                     "Warning: mssql_",
-                    "Msg \d+, Level \d+, State \d+",
-                    "Line \d+: Incorrect syntax near"
+                    r"Msg \d+, Level \d+, State \d+",
+                    r"Line \d+: Incorrect syntax near"
                 ],
                 "version": [
                     "SELECT @@version",
