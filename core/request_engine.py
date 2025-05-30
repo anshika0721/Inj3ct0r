@@ -35,13 +35,9 @@ class RequestEngine:
         if "User-Agent" not in self.headers:
             self.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     
-    def send_request(self, payload: Optional[str] = None) -> Tuple[requests.Response, Dict[str, Any]]:
-        """Send HTTP request with optional payload."""
+    def send_request(self, payload: Optional[str] = None, params: Optional[Dict[str, str]] = None, data: Optional[Dict[str, Any]] = None) -> Tuple[requests.Response, Dict[str, Any]]:
+        """Send HTTP request with optional payload, params, or data."""
         try:
-            # Parse URL and get parameters
-            parsed_url = urlparse(self.url)
-            params = parse_qs(parsed_url.query)
-            
             # Prepare request data
             request_data = {
                 "url": self.url,
@@ -51,19 +47,26 @@ class RequestEngine:
                 "verify": self.verify_ssl
             }
             
-            # Handle payload injection
-            if payload:
+            # Handle parameters
+            if params:
+                request_data["params"] = params
+            elif payload:
+                # Parse URL and get parameters
+                parsed_url = urlparse(self.url)
+                url_params = parse_qs(parsed_url.query)
+                
                 if self.method == "GET":
                     # Inject payload into URL parameters
-                    for param in params:
-                        params[param] = [payload]
-                    request_data["params"] = params
+                    for param in url_params:
+                        url_params[param] = [payload]
+                    request_data["params"] = url_params
                 elif self.method == "POST":
                     # Inject payload into POST data
                     request_data["data"] = {k: payload for k in self.data}
-                else:
-                    logging.warning(f"Unsupported HTTP method: {self.method}")
-                    return None, {}
+            
+            # Handle POST data
+            if data:
+                request_data["data"] = data
                     
             # Send request
             if self.method == "GET":
