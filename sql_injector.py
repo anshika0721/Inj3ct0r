@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from core.config_manager import ConfigManager
 from core.logger import Logger
@@ -11,6 +11,7 @@ from core.request_engine import RequestEngine
 from core.payload_manager import PayloadManager
 from core.waf_detector import WAFDetector
 from core.db_connector import DatabaseConnector
+from core.db_fingerprinter import DatabaseFingerprinter
 
 from modules.error_based import ErrorBasedInjector
 from modules.union_based import UnionBasedInjector
@@ -19,153 +20,140 @@ from modules.time_based import TimeBasedInjector
 from modules.stacked_queries import StackedQueriesInjector
 
 class SQLInjector:
-    def __init__(self, config_file: str = "config.json"):
-        """Initialize SQL injector."""
-        # Initialize components
-        self.config = ConfigManager(config_file)
-        self.logger = Logger(
-            self.config.get_value("logging", "file"),
-            self.config.get_value("logging", "level")
-        )
-        self.output = OutputManager(
-            self.config.get_value("output", "file"),
-            self.config.get_value("output", "format")
-        )
+    def __init__(self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None,
+                 cookies: Optional[Dict[str, str]] = None, data: Optional[Dict[str, str]] = None,
+                 timeout: int = 10, verify_ssl: bool = True):
+        """Initialize SQL injector with target URL and request parameters."""
+        self.request_engine = RequestEngine(url, method, headers, cookies, data, timeout, verify_ssl)
+        self.output_manager = OutputManager()
+        self.waf_detector = WAFDetector()
+        self.db_fingerprinter = DatabaseFingerprinter()
         
-        # Initialize request engine with default URL
-        request_config = self.config.get_request_config()
-        self.request_engine = RequestEngine(
-            url="http://localhost",  # Default URL, will be updated in run() method
-            method="GET",
-            timeout=request_config["timeout"],
-            verify_ssl=request_config["verify_ssl"],
-            headers=request_config["headers"]
-        )
+    def detect_database(self) -> Dict[str, Any]:
+        """Detect database type and version."""
+        return self.db_fingerprinter.fingerprint(self.request_engine)
         
-        # Initialize payload manager
-        self.payload_manager = PayloadManager()
+    def detect_waf(self) -> Dict[str, Any]:
+        """Detect WAF presence and type."""
+        return self.waf_detector.detect(self.request_engine)
         
-        # Initialize WAF detector
-        self.waf_detector = WAFDetector(self.request_engine, self.payload_manager)
-        
-        # Initialize database connector with default values
-        db_config = self.config.get_database_config()
-        self.db_connector = DatabaseConnector(
-            dbms=db_config.get("type", "mysql"),
-            host=db_config.get("host", "localhost"),
-            port=db_config.get("port", 3306),
-            database=db_config.get("database", ""),
-            username=db_config.get("username", ""),
-            password=db_config.get("password", "")
-        )
-        
-        # Initialize injectors
-        self.injectors = {
-            "error": ErrorBasedInjector(self.request_engine, self.payload_manager),
-            "union": UnionBasedInjector(self.request_engine, self.payload_manager),
-            "blind": BlindInjector(self.request_engine, self.payload_manager),
-            "time": TimeBasedInjector(self.request_engine, self.payload_manager),
-            "stacked": StackedQueriesInjector(self.request_engine, self.payload_manager)
-        }
-        
-    def run(self, url: str, techniques: Optional[List[str]] = None) -> None:
+    def scan(self) -> None:
         """Run SQL injection scan."""
         try:
             # Start scan
-            self.logger.info(f"Starting SQL injection scan for {url}")
-            self.output.start_scan(url, techniques or self.config.get_value("injection", "techniques"))
-            
-            # Update target URL
-            self.request_engine.url = url
+            self.output_manager.start_scan(self.request_engine.url)
             
             # Detect WAF
-            if self.config.get_value("waf", "detection"):
-                self.logger.info("Detecting WAF...")
-                waf_info = self.waf_detector.detect_waf()
-                
-                if waf_info and isinstance(waf_info, dict):
-                    self.output.set_waf_info(waf_info)
-                    
-                    if waf_info.get("waf_detected", False):
-                        self.logger.warning(f"WAF detected: {waf_info.get('waf_type', 'Unknown')} (Confidence: {waf_info.get('confidence', 0)}%)")
-                        
-                        if self.config.get_value("waf", "bypass"):
-                            self.logger.info("Testing WAF bypass techniques...")
-                            bypass_results = self.waf_detector.test_waf_bypass()
-                            if bypass_results and bypass_results.get("successful", False):
-                                self.logger.success(f"WAF bypass successful using: {bypass_results.get('technique', 'Unknown')}")
-                            else:
-                                self.logger.warning("No successful WAF bypass found")
-                    else:
-                        self.logger.info("No WAF detected")
-                else:
-                    self.logger.warning("WAF detection failed or returned invalid results")
+            waf_info = self.detect_waf()
+            self.output_manager.set_waf_info(waf_info)
             
-            # Run selected techniques
-            total_tests = 0
-            successful_tests = 0
-            failed_tests = 0
+            # Detect database
+            db_info = self.detect_database()
+            self.output_manager.set_database_info(db_info)
             
-            for technique in (techniques or self.config.get_value("injection", "techniques")):
-                if technique not in self.injectors:
-                    self.logger.warning(f"Unknown technique: {technique}")
-                    continue
-                    
-                self.logger.info(f"Running {technique} injection tests...")
-                injector = self.injectors[technique]
-                
-                # Test all parameters
-                results = injector.test_all_parameters()
-                
-                # Update statistics
-                total_tests += len(results)
-                successful_tests += sum(1 for r in results if r.get("status") == "vulnerable")
-                failed_tests += sum(1 for r in results if r.get("status") != "vulnerable")
-                
-                # Add vulnerabilities
-                for result in results:
-                    if result.get("status") == "vulnerable":
-                        self.output.add_vulnerability(
-                            technique,
-                            {
-                                "parameter": result.get("parameter", "unknown"),
-                                "payload": result.get("payload", "unknown"),
-                                "details": result.get("details", {})
-                            }
-                        )
-                        
-            # Update statistics
-            self.output.update_statistics(total_tests, successful_tests, failed_tests)
+            # Run injection tests
+            self._run_injection_tests()
             
-            # End scan
-            self.output.end_scan()
-            self.logger.info("Scan completed")
-            
-            # Get and display results
-            results = self.output.get_results()
-            self.logger.info("\nScan Results:")
-            self.logger.info(f"Total Tests: {results['statistics']['total_tests']}")
-            self.logger.info(f"Successful Tests: {results['statistics']['successful_tests']}")
-            self.logger.info(f"Failed Tests: {results['statistics']['failed_tests']}")
-            self.logger.info(f"Vulnerabilities Found: {results['statistics']['vulnerabilities_found']}")
-            
-            if results['vulnerabilities']:
-                self.logger.info("\nVulnerabilities Found:")
-                for vuln in results['vulnerabilities']:
-                    self.logger.warning(f"\nType: {vuln['type']}")
-                    self.logger.warning(f"Parameter: {vuln['details']['parameter']}")
-                    self.logger.warning(f"Payload: {vuln['details']['payload']}")
-                    if vuln['details'].get('details'):
-                        self.logger.warning(f"Details: {vuln['details']['details']}")
-            
-            # Save results
-            self.output.save_results()
-            self.logger.info(f"Results saved to {self.config.get_value('output', 'file')}")
+            # End scan and save results
+            self.output_manager.end_scan()
             
         except Exception as e:
-            self.logger.error(f"Error during scan: {str(e)}")
-            sys.exit(1)
+            logging.error(f"Scan failed: {str(e)}")
+            raise
             
+    def _run_injection_tests(self) -> None:
+        """Run all injection tests."""
+        # Initialize injectors
+        error_injector = ErrorBasedInjector(self.request_engine)
+        union_injector = UnionBasedInjector(self.request_engine)
+        blind_injector = BlindInjector(self.request_engine)
+        stacked_injector = StackedQueriesInjector(self.request_engine)
+        
+        # Run tests based on detected database
+        db_type = self.output_manager.get_database_info().get("type", "unknown")
+        
+        if db_type == "mysql":
+            self._run_mysql_tests(error_injector, union_injector, blind_injector, stacked_injector)
+        elif db_type == "postgresql":
+            self._run_postgres_tests(error_injector, union_injector, blind_injector, stacked_injector)
+        elif db_type == "mssql":
+            self._run_mssql_tests(error_injector, union_injector, blind_injector, stacked_injector)
+        else:
+            # Run all tests if database type is unknown
+            self._run_all_tests(error_injector, union_injector, blind_injector, stacked_injector)
+            
+    def _run_mysql_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
+        """Run MySQL-specific tests."""
+        # Error-based tests
+        results = error_injector._test_mysql_error()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Union-based tests
+        results = union_injector._test_mysql_union()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Blind tests
+        results = blind_injector._test_mysql_blind()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Stacked queries tests
+        results = stacked_injector._test_mysql_stacked()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+    def _run_postgres_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
+        """Run PostgreSQL-specific tests."""
+        # Error-based tests
+        results = error_injector._test_postgres_error()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Union-based tests
+        results = union_injector._test_postgres_union()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Blind tests
+        results = blind_injector._test_postgres_blind()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Stacked queries tests
+        results = stacked_injector._test_postgres_stacked()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+    def _run_mssql_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
+        """Run MSSQL-specific tests."""
+        # Error-based tests
+        results = error_injector._test_mssql_error()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Union-based tests
+        results = union_injector._test_mssql_union()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Blind tests
+        results = blind_injector._test_mssql_blind()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+        # Stacked queries tests
+        results = stacked_injector._test_mssql_stacked()
+        for result in results:
+            self.output_manager.add_vulnerability(result)
+            
+    def _run_all_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
+        """Run all tests for all database types."""
+        self._run_mysql_tests(error_injector, union_injector, blind_injector, stacked_injector)
+        self._run_postgres_tests(error_injector, union_injector, blind_injector, stacked_injector)
+        self._run_mssql_tests(error_injector, union_injector, blind_injector, stacked_injector)
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Advanced SQL Injection Testing Tool")
@@ -188,7 +176,7 @@ def main():
     args = parser.parse_args()
     
     # Create SQL injector
-    injector = SQLInjector(args.config)
+    injector = SQLInjector(args.url)
     
     # Update configuration from arguments
     if args.output:
@@ -210,7 +198,7 @@ def main():
         injector.logger.set_level("DEBUG")
         
     # Run scan
-    injector.run(args.url, args.techniques)
+    injector.scan()
     
 if __name__ == "__main__":
     main() 
