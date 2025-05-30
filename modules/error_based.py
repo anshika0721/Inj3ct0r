@@ -94,184 +94,157 @@ class ErrorBasedInjector:
         
         return False, None, None
     
-    def test_all_parameters(self) -> List[Dict[str, Any]]:
+    def test_all_parameters(self) -> List[Dict]:
         """Test all parameters for error-based SQL injection vulnerabilities."""
         results = []
+        params = self.request_engine.get_parameters()
         
-        # Test MySQL error-based injection
-        mysql_results = self._test_mysql_error()
-        if mysql_results:
+        for param_name in params:
+            # Test MySQL error-based injection
+            mysql_results = self._test_mysql_error(param_name)
             results.extend(mysql_results)
             
-        # Test PostgreSQL error-based injection
-        postgres_results = self._test_postgres_error()
-        if postgres_results:
+            # Test PostgreSQL error-based injection
+            postgres_results = self._test_postgres_error(param_name)
             results.extend(postgres_results)
             
-        # Test MSSQL error-based injection
-        mssql_results = self._test_mssql_error()
-        if mssql_results:
+            # Test MSSQL error-based injection
+            mssql_results = self._test_mssql_error(param_name)
             results.extend(mssql_results)
-            
-        return results
         
-    def _test_mysql_error(self) -> List[Dict[str, Any]]:
+        return results
+    
+    def _test_mysql_error(self, param_name: str) -> List[Dict]:
         """Test for MySQL error-based SQL injection."""
         results = []
+        payloads = self.payload_manager.get_payloads("error", "mysql")
         
-        # Get all parameters from the request
-        params = self.request_engine.get_parameters()
-        
-        # Common MySQL error-based payloads
-        payloads = [
-            "'",
-            "''",
-            "\"",
-            "\"\"",
-            "' OR '1'='1",
-            "' OR '1'='1' --",
-            "' OR '1'='1' #",
-            "' OR 1=1 --",
-            "' OR 1=1 #",
-            "') OR ('1'='1",
-            "') OR ('1'='1' --",
-            "') OR ('1'='1' #",
-            "')) OR (('1'='1",
-            "')) OR (('1'='1' --",
-            "')) OR (('1'='1' #",
-            "' UNION SELECT 1,2,3 --",
-            "' UNION SELECT 1,2,3 #",
-            "' UNION ALL SELECT 1,2,3 --",
-            "' UNION ALL SELECT 1,2,3 #"
-        ]
-        
-        for param_name, param_value in params.items():
-            for payload in payloads:
-                try:
-                    # Send request with payload
-                    test_value = param_value + payload if param_value else payload
-                    response, _ = self.request_engine.send_request(params={param_name: test_value})
-                    
-                    # Check if response indicates successful injection
-                    if self._check_mysql_error(response):
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(
+                    payload=payload,
+                    params={param_name: payload}
+                )
+                
+                if not response:
+                    continue
+                
+                # Check for MySQL error messages
+                error_messages = [
+                    "You have an error in your SQL syntax",
+                    "check the manual that corresponds to your MySQL server version",
+                    "MySQL server version",
+                    "Warning: mysql_",
+                    "valid MySQL result",
+                    "check the manual that corresponds to your MariaDB server version",
+                    "MySqlException"
+                ]
+                
+                for error_msg in error_messages:
+                    if error_msg in response.text:
                         results.append({
                             "type": "error",
                             "parameter": param_name,
                             "payload": payload,
-                            "status": "vulnerable",
-                            "error": self._extract_mysql_error(response)
+                            "severity": "high",
+                            "description": f"Error-based SQL injection detected in MySQL: {error_msg}"
                         })
-                        
-                except Exception as e:
-                    logging.error(f"Error testing MySQL error-based injection: {str(e)}")
-                    continue
-                    
-        return results
+                        break
+            
+            except Exception as e:
+                logging.error(f"Error testing MySQL error-based injection: {str(e)}")
+                continue
         
-    def _test_postgres_error(self) -> List[Dict[str, Any]]:
+        return results
+    
+    def _test_postgres_error(self, param_name: str) -> List[Dict]:
         """Test for PostgreSQL error-based SQL injection."""
         results = []
+        payloads = self.payload_manager.get_payloads("error", "postgresql")
         
-        # Get all parameters from the request
-        params = self.request_engine.get_parameters()
-        
-        # Common PostgreSQL error-based payloads
-        payloads = [
-            "'",
-            "''",
-            "\"",
-            "\"\"",
-            "' OR '1'='1",
-            "' OR '1'='1' --",
-            "' OR '1'='1' #",
-            "' OR 1=1 --",
-            "' OR 1=1 #",
-            "') OR ('1'='1",
-            "') OR ('1'='1' --",
-            "') OR ('1'='1' #",
-            "')) OR (('1'='1",
-            "')) OR (('1'='1' --",
-            "')) OR (('1'='1' #",
-            "' UNION SELECT 1,2,3 --",
-            "' UNION SELECT 1,2,3 #",
-            "' UNION ALL SELECT 1,2,3 --",
-            "' UNION ALL SELECT 1,2,3 #"
-        ]
-        
-        for param_name, param_value in params.items():
-            for payload in payloads:
-                try:
-                    # Send request with payload
-                    test_value = param_value + payload if param_value else payload
-                    response, _ = self.request_engine.send_request(params={param_name: test_value})
-                    
-                    # Check if response indicates successful injection
-                    if self._check_postgres_error(response):
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(
+                    payload=payload,
+                    params={param_name: payload}
+                )
+                
+                if not response:
+                    continue
+                
+                # Check for PostgreSQL error messages
+                error_messages = [
+                    "PostgreSQL",
+                    "pg_",
+                    "PSQLException",
+                    "ERROR: syntax error at or near",
+                    "ERROR: invalid input syntax for",
+                    "ERROR: column",
+                    "ERROR: relation",
+                    "ERROR: function"
+                ]
+                
+                for error_msg in error_messages:
+                    if error_msg in response.text:
                         results.append({
                             "type": "error",
                             "parameter": param_name,
                             "payload": payload,
-                            "status": "vulnerable",
-                            "error": self._extract_postgres_error(response)
+                            "severity": "high",
+                            "description": f"Error-based SQL injection detected in PostgreSQL: {error_msg}"
                         })
-                        
-                except Exception as e:
-                    logging.error(f"Error testing PostgreSQL error-based injection: {str(e)}")
-                    continue
-                    
-        return results
+                        break
+            
+            except Exception as e:
+                logging.error(f"Error testing PostgreSQL error-based injection: {str(e)}")
+                continue
         
-    def _test_mssql_error(self) -> List[Dict[str, Any]]:
+        return results
+    
+    def _test_mssql_error(self, param_name: str) -> List[Dict]:
         """Test for MSSQL error-based SQL injection."""
         results = []
+        payloads = self.payload_manager.get_payloads("error", "mssql")
         
-        # Get all parameters from the request
-        params = self.request_engine.get_parameters()
-        
-        # Common MSSQL error-based payloads
-        payloads = [
-            "'",
-            "''",
-            "\"",
-            "\"\"",
-            "' OR '1'='1",
-            "' OR '1'='1' --",
-            "' OR '1'='1' #",
-            "' OR 1=1 --",
-            "' OR 1=1 #",
-            "') OR ('1'='1",
-            "') OR ('1'='1' --",
-            "') OR ('1'='1' #",
-            "')) OR (('1'='1",
-            "')) OR (('1'='1' --",
-            "')) OR (('1'='1' #",
-            "' UNION SELECT 1,2,3 --",
-            "' UNION SELECT 1,2,3 #",
-            "' UNION ALL SELECT 1,2,3 --",
-            "' UNION ALL SELECT 1,2,3 #"
-        ]
-        
-        for param_name, param_value in params.items():
-            for payload in payloads:
-                try:
-                    # Send request with payload
-                    test_value = param_value + payload if param_value else payload
-                    response, _ = self.request_engine.send_request(params={param_name: test_value})
-                    
-                    # Check if response indicates successful injection
-                    if self._check_mssql_error(response):
+        for payload in payloads:
+            try:
+                # Send request with payload
+                response, _ = self.request_engine.send_request(
+                    payload=payload,
+                    params={param_name: payload}
+                )
+                
+                if not response:
+                    continue
+                
+                # Check for MSSQL error messages
+                error_messages = [
+                    "Microsoft SQL Server",
+                    "SQLServer JDBC Driver",
+                    "ODBC SQL Server Driver",
+                    "SQLServerException",
+                    "Warning: mssql_",
+                    "Msg ",
+                    "Incorrect syntax near"
+                ]
+                
+                for error_msg in error_messages:
+                    if error_msg in response.text:
                         results.append({
                             "type": "error",
                             "parameter": param_name,
                             "payload": payload,
-                            "status": "vulnerable",
-                            "error": self._extract_mssql_error(response)
+                            "severity": "high",
+                            "description": f"Error-based SQL injection detected in MSSQL: {error_msg}"
                         })
-                        
-                except Exception as e:
-                    logging.error(f"Error testing MSSQL error-based injection: {str(e)}")
-                    continue
-                    
+                        break
+            
+            except Exception as e:
+                logging.error(f"Error testing MSSQL error-based injection: {str(e)}")
+                continue
+        
         return results
         
     def _check_mysql_error(self, response) -> bool:
