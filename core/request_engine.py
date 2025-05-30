@@ -35,62 +35,58 @@ class RequestEngine:
         if "User-Agent" not in self.headers:
             self.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     
-    def send_request(self, payload: Optional[str] = None, params: Optional[Dict[str, str]] = None, data: Optional[Dict[str, Any]] = None) -> Tuple[requests.Response, Dict[str, Any]]:
-        """Send HTTP request with optional payload, params, or data."""
+    def send_request(self, payload: Optional[str] = None, params: Optional[Dict[str, str]] = None, data: Optional[Dict[str, str]] = None) -> Tuple[requests.Response, float]:
+        """Send a request with optional payload and parameters."""
         try:
             # Prepare request data
-            request_data = {
-                "url": self.url,
-                "headers": self.headers,
-                "cookies": self.cookies,
-                "timeout": self.timeout,
-                "verify": self.verify_ssl
-            }
+            request_params = self.params.copy()
+            request_data = self.data.copy()
             
-            # Handle parameters
+            # Update with provided parameters and data
             if params:
-                request_data["params"] = params
-            elif payload:
-                # Parse URL and get parameters
-                parsed_url = urlparse(self.url)
-                url_params = parse_qs(parsed_url.query)
-                
-                if self.method == "GET":
-                    # Inject payload into URL parameters
-                    for param in url_params:
-                        url_params[param] = [payload]
-                    request_data["params"] = url_params
-                elif self.method == "POST":
-                    # Inject payload into POST data
-                    request_data["data"] = {k: payload for k in self.data}
-            
-            # Handle POST data
+                request_params.update(params)
             if data:
-                request_data["data"] = data
-                    
-            # Send request
-            if self.method == "GET":
-                response = self.session.get(**request_data)
-            elif self.method == "POST":
-                response = self.session.post(**request_data)
-            else:
-                logging.warning(f"Unsupported HTTP method: {self.method}")
-                return None, {}
+                request_data.update(data)
                 
-            # Prepare response info
-            response_info = {
-                "status_code": response.status_code,
-                "headers": dict(response.headers),
-                "cookies": dict(response.cookies),
-                "elapsed": response.elapsed.total_seconds(),
-                "content_length": len(response.content)
-            }
+            # Add payload if provided
+            if payload:
+                if self.method.upper() == "GET":
+                    # For GET requests, add payload to parameters
+                    for param in request_params:
+                        request_params[param] = request_params[param] + payload if request_params[param] else payload
+                else:
+                    # For POST requests, add payload to data
+                    for param in request_data:
+                        request_data[param] = request_data[param] + payload if request_data[param] else payload
             
-            return response, response_info
+            # Send request based on method
+            start_time = time.time()
+            if self.method.upper() == "GET":
+                response = requests.get(
+                    self.url,
+                    params=request_params,
+                    headers=self.headers,
+                    cookies=self.cookies,
+                    timeout=self.timeout,
+                    verify=False
+                )
+            else:  # POST
+                response = requests.post(
+                    self.url,
+                    params=request_params,
+                    data=request_data,
+                    headers=self.headers,
+                    cookies=self.cookies,
+                    timeout=self.timeout,
+                    verify=False
+                )
+            end_time = time.time()
+            
+            return response, end_time - start_time
             
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed: {str(e)}")
-            return None, {}
+            raise
     
     def get_url_parameters(self) -> Dict[str, str]:
         """Get URL parameters."""
