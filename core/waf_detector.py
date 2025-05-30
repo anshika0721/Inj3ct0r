@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from core.request_engine import RequestEngine
 
 class WAFDetector:
