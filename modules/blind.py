@@ -13,19 +13,24 @@ class BlindInjector:
         """Test all parameters for blind SQL injection vulnerabilities."""
         results = []
         
-        # Test boolean-based blind injection
-        boolean_results = self._test_boolean_blind()
-        if boolean_results:
-            results.extend(boolean_results)
-            
-        # Test comparison-based blind injection
-        comparison_results = self._test_comparison_blind()
-        if comparison_results:
-            results.extend(comparison_results)
-            
+        # Get all parameters from the request
+        params = self.request_engine.get_parameters()
+        
+        # Test each parameter
+        for param_name, param_value in params.items():
+            # Test boolean-based blind injection
+            boolean_results = self._test_boolean_blind(param_name, param_value)
+            if boolean_results:
+                results.extend(boolean_results)
+                
+            # Test comparison-based blind injection
+            comparison_results = self._test_comparison_blind(param_name, param_value)
+            if comparison_results:
+                results.extend(comparison_results)
+                
         return results
         
-    def _test_boolean_blind(self) -> List[Dict[str, Any]]:
+    def _test_boolean_blind(self, param_name: str, param_value: str) -> List[Dict[str, Any]]:
         """Test for boolean-based blind SQL injection."""
         results = []
         
@@ -47,12 +52,13 @@ class BlindInjector:
         for payload in payloads:
             try:
                 # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
+                response, _ = self.request_engine.send_request(params={param_name: param_value + payload})
                 
                 # Check if response indicates successful injection
                 if self._check_boolean_response(response):
                     results.append({
                         "type": "boolean_blind",
+                        "parameter": param_name,
                         "payload": payload,
                         "status": "vulnerable"
                     })
@@ -63,7 +69,7 @@ class BlindInjector:
                 
         return results
         
-    def _test_comparison_blind(self) -> List[Dict[str, Any]]:
+    def _test_comparison_blind(self, param_name: str, param_value: str) -> List[Dict[str, Any]]:
         """Test for comparison-based blind SQL injection."""
         results = []
         
@@ -83,12 +89,13 @@ class BlindInjector:
         for payload in payloads:
             try:
                 # Send request with payload
-                response, _ = self.request_engine.send_request(payload=payload)
+                response, _ = self.request_engine.send_request(params={param_name: param_value + payload})
                 
                 # Check if response indicates successful injection
                 if self._check_comparison_response(response):
                     results.append({
                         "type": "comparison_blind",
+                        "parameter": param_name,
                         "payload": payload,
                         "status": "vulnerable"
                     })
