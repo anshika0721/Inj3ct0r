@@ -1,204 +1,133 @@
 #!/usr/bin/env python3
 
 import argparse
-import sys
-from typing import List, Optional, Dict, Any
-
-from core.config_manager import ConfigManager
-from core.logger import Logger
-from core.output_manager import OutputManager
+import logging
+from typing import Dict, List, Optional
 from core.request_engine import RequestEngine
 from core.payload_manager import PayloadManager
 from core.waf_detector import WAFDetector
-from core.db_connector import DatabaseConnector
 from core.db_fingerprinter import DatabaseFingerprinter
-
+from core.output_manager import OutputManager
 from modules.error_based import ErrorBasedInjector
 from modules.union_based import UnionBasedInjector
-from modules.blind import BlindInjector
-from modules.time_based import TimeBasedInjector
-from modules.stacked_queries import StackedQueriesInjector
+from modules.blind_based import BlindBasedInjector
+from modules.stack_queries import StackedQueriesInjector
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 class SQLInjector:
     def __init__(self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None,
                  cookies: Optional[Dict[str, str]] = None, data: Optional[Dict[str, str]] = None,
                  timeout: int = 10, verify_ssl: bool = True):
-        """Initialize SQL injector with target URL and request parameters."""
+        """Initialize the SQL injection scanner."""
         self.request_engine = RequestEngine(url, method, headers, cookies, data, timeout, verify_ssl)
+        self.payload_manager = PayloadManager()
+        self.waf_detector = WAFDetector(self.request_engine)
+        self.db_fingerprinter = DatabaseFingerprinter(self.request_engine)
         self.output_manager = OutputManager()
-        self.waf_detector = WAFDetector()
-        self.db_fingerprinter = DatabaseFingerprinter()
         
-    def detect_database(self) -> Dict[str, Any]:
-        """Detect database type and version."""
-        return self.db_fingerprinter.fingerprint(self.request_engine)
-        
-    def detect_waf(self) -> Dict[str, Any]:
-        """Detect WAF presence and type."""
-        return self.waf_detector.detect(self.request_engine)
-        
-    def scan(self) -> None:
-        """Run SQL injection scan."""
-        try:
-            # Start scan
-            self.output_manager.start_scan(self.request_engine.url)
-            
-            # Detect WAF
-            waf_info = self.detect_waf()
-            self.output_manager.set_waf_info(waf_info)
-            
-            # Detect database
-            db_info = self.detect_database()
-            self.output_manager.set_database_info(db_info)
-            
-            # Run injection tests
-            self._run_injection_tests()
-            
-            # End scan and save results
-            self.output_manager.end_scan()
-            
-        except Exception as e:
-            logging.error(f"Scan failed: {str(e)}")
-            raise
-            
-    def _run_injection_tests(self) -> None:
-        """Run all injection tests."""
         # Initialize injectors
-        error_injector = ErrorBasedInjector(self.request_engine)
-        union_injector = UnionBasedInjector(self.request_engine)
-        blind_injector = BlindInjector(self.request_engine)
-        stacked_injector = StackedQueriesInjector(self.request_engine)
+        self.error_injector = ErrorBasedInjector(self.request_engine, self.payload_manager)
+        self.union_injector = UnionBasedInjector(self.request_engine, self.payload_manager)
+        self.blind_injector = BlindBasedInjector(self.request_engine, self.payload_manager)
+        self.stacked_injector = StackedQueriesInjector(self.request_engine, self.payload_manager)
+    
+    def detect_waf(self) -> bool:
+        """Detect if target is protected by WAF."""
+        try:
+            return self.waf_detector.detect()
+        except Exception as e:
+            logging.error(f"WAF detection failed: {str(e)}")
+            return False
+    
+    def fingerprint_database(self) -> str:
+        """Fingerprint the database type and version."""
+        try:
+            return self.db_fingerprinter.fingerprint()
+        except Exception as e:
+            logging.error(f"Database fingerprinting failed: {str(e)}")
+            return "unknown"
+    
+    def _run_injection_tests(self) -> List[Dict]:
+        """Run all injection tests."""
+        results = []
         
-        # Run tests based on detected database
-        db_type = self.output_manager.get_database_info().get("type", "unknown")
+        # Run error-based tests
+        error_results = self.error_injector.test_all_parameters()
+        results.extend(error_results)
         
-        if db_type == "mysql":
-            self._run_mysql_tests(error_injector, union_injector, blind_injector, stacked_injector)
-        elif db_type == "postgresql":
-            self._run_postgres_tests(error_injector, union_injector, blind_injector, stacked_injector)
-        elif db_type == "mssql":
-            self._run_mssql_tests(error_injector, union_injector, blind_injector, stacked_injector)
+        # Run union-based tests
+        union_results = self.union_injector.test_all_parameters()
+        results.extend(union_results)
+        
+        # Run blind-based tests
+        blind_results = self.blind_injector.test_all_parameters()
+        results.extend(blind_results)
+        
+        # Run stacked queries tests
+        stacked_results = self.stacked_injector.test_all_parameters()
+        results.extend(stacked_results)
+        
+        return results
+    
+    def scan(self) -> None:
+        """Run the complete SQL injection scan."""
+        logging.info("Starting SQL injection scan...")
+        
+        # Check for WAF
+        if self.detect_waf():
+            logging.warning("WAF detected! Scan may be blocked.")
         else:
-            # Run all tests if database type is unknown
-            self._run_all_tests(error_injector, union_injector, blind_injector, stacked_injector)
-            
-    def _run_mysql_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
-        """Run MySQL-specific tests."""
-        # Error-based tests
-        results = error_injector._test_mysql_error()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Union-based tests
-        results = union_injector._test_mysql_union()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Blind tests
-        results = blind_injector._test_mysql_blind()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Stacked queries tests
-        results = stacked_injector._test_mysql_stacked()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-    def _run_postgres_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
-        """Run PostgreSQL-specific tests."""
-        # Error-based tests
-        results = error_injector._test_postgres_error()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Union-based tests
-        results = union_injector._test_postgres_union()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Blind tests
-        results = blind_injector._test_postgres_blind()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Stacked queries tests
-        results = stacked_injector._test_postgres_stacked()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-    def _run_mssql_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
-        """Run MSSQL-specific tests."""
-        # Error-based tests
-        results = error_injector._test_mssql_error()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Union-based tests
-        results = union_injector._test_mssql_union()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Blind tests
-        results = blind_injector._test_mssql_blind()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-        # Stacked queries tests
-        results = stacked_injector._test_mssql_stacked()
-        for result in results:
-            self.output_manager.add_vulnerability(result)
-            
-    def _run_all_tests(self, error_injector, union_injector, blind_injector, stacked_injector) -> None:
-        """Run all tests for all database types."""
-        self._run_mysql_tests(error_injector, union_injector, blind_injector, stacked_injector)
-        self._run_postgres_tests(error_injector, union_injector, blind_injector, stacked_injector)
-        self._run_mssql_tests(error_injector, union_injector, blind_injector, stacked_injector)
+            logging.info("No WAF detected.")
+        
+        # Fingerprint database
+        db_type = self.fingerprint_database()
+        logging.info(f"Database type: {db_type}")
+        
+        # Run injection tests
+        results = self._run_injection_tests()
+        
+        # Display results
+        self.output_manager.display_results(results)
+        
+        # Export report
+        self.output_manager.export_report(results, "sql_injection_report.html")
+        
+        logging.info("Scan completed.")
 
 def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(description="Advanced SQL Injection Testing Tool")
-    
-    # Required arguments
+    parser = argparse.ArgumentParser(description="SQL Injection Scanner")
     parser.add_argument("-u", "--url", required=True, help="Target URL")
-    
-    # Optional arguments
-    parser.add_argument("-t", "--techniques", nargs="+", help="Injection techniques to use")
-    parser.add_argument("-c", "--config", default="config.json", help="Configuration file")
-    parser.add_argument("-o", "--output", help="Output file")
-    parser.add_argument("-f", "--format", choices=["json", "html", "txt"], help="Output format")
-    parser.add_argument("--dbms", choices=["mysql", "postgresql", "mssql", "sqlite"], help="Target DBMS")
-    parser.add_argument("--no-waf", action="store_true", help="Disable WAF detection")
-    parser.add_argument("--no-bypass", action="store_true", help="Disable WAF bypass")
-    parser.add_argument("--timeout", type=int, help="Request timeout in seconds")
-    parser.add_argument("--threads", type=int, help="Number of threads")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("-m", "--method", default="GET", choices=["GET", "POST"], help="HTTP method")
+    parser.add_argument("-H", "--headers", help="Custom headers (JSON format)")
+    parser.add_argument("-c", "--cookies", help="Custom cookies (JSON format)")
+    parser.add_argument("-d", "--data", help="POST data (JSON format)")
+    parser.add_argument("-t", "--timeout", type=int, default=10, help="Request timeout in seconds")
+    parser.add_argument("--no-verify", action="store_true", help="Disable SSL verification")
     
     args = parser.parse_args()
     
-    # Create SQL injector
-    injector = SQLInjector(args.url)
+    # Parse JSON arguments
+    import json
+    headers = json.loads(args.headers) if args.headers else None
+    cookies = json.loads(args.cookies) if args.cookies else None
+    data = json.loads(args.data) if args.data else None
     
-    # Update configuration from arguments
-    if args.output:
-        injector.config.set_value("output", "file", args.output)
-    if args.format:
-        injector.config.set_value("output", "format", args.format)
-    if args.dbms:
-        injector.config.set_value("database", "type", args.dbms)
-    if args.no_waf:
-        injector.config.set_value("waf", "detection", False)
-    if args.no_bypass:
-        injector.config.set_value("waf", "bypass", False)
-    if args.timeout:
-        injector.config.set_value("request", "timeout", args.timeout)
-    if args.threads:
-        injector.config.set_value("injection", "threads", args.threads)
-    if args.verbose:
-        injector.config.set_value("output", "verbose", True)
-        injector.logger.set_level("DEBUG")
-        
-    # Run scan
-    injector.scan()
-    
+    # Initialize and run scanner
+    scanner = SQLInjector(
+        args.url,
+        args.method,
+        headers,
+        cookies,
+        data,
+        args.timeout,
+        not args.no_verify
+    )
+    scanner.scan()
+
 if __name__ == "__main__":
     main() 
