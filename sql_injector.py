@@ -141,6 +141,23 @@ class SQLInjector:
             self.output.end_scan()
             self.logger.info("Scan completed")
             
+            # Get and display results
+            results = self.output.get_results()
+            self.logger.info("\nScan Results:")
+            self.logger.info(f"Total Tests: {results['statistics']['total_tests']}")
+            self.logger.info(f"Successful Tests: {results['statistics']['successful_tests']}")
+            self.logger.info(f"Failed Tests: {results['statistics']['failed_tests']}")
+            self.logger.info(f"Vulnerabilities Found: {results['statistics']['vulnerabilities_found']}")
+            
+            if results['vulnerabilities']:
+                self.logger.info("\nVulnerabilities Found:")
+                for vuln in results['vulnerabilities']:
+                    self.logger.warning(f"\nType: {vuln['type']}")
+                    self.logger.warning(f"Parameter: {vuln['details']['parameter']}")
+                    self.logger.warning(f"Payload: {vuln['details']['payload']}")
+                    if vuln['details'].get('details'):
+                        self.logger.warning(f"Details: {vuln['details']['details']}")
+            
             # Save results
             self.output.save_results()
             self.logger.info(f"Results saved to {self.config.get_value('output', 'file')}")
