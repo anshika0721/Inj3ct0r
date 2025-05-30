@@ -52,7 +52,8 @@ class BlindInjector:
         for payload in payloads:
             try:
                 # Send request with payload
-                response, _ = self.request_engine.send_request(params={param_name: param_value + payload})
+                test_value = param_value + payload if param_value else payload
+                response, _ = self.request_engine.send_request(params={param_name: test_value})
                 
                 # Check if response indicates successful injection
                 if self._check_boolean_response(response):
@@ -89,7 +90,8 @@ class BlindInjector:
         for payload in payloads:
             try:
                 # Send request with payload
-                response, _ = self.request_engine.send_request(params={param_name: param_value + payload})
+                test_value = param_value + payload if param_value else payload
+                response, _ = self.request_engine.send_request(params={param_name: test_value})
                 
                 # Check if response indicates successful injection
                 if self._check_comparison_response(response):
