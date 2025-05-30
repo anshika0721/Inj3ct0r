@@ -1,75 +1,143 @@
 #!/usr/bin/env python3
 
-import re
-from typing import Dict, Any, List
 import logging
-from .request_engine import RequestEngine
+from typing import Dict, List, Optional
+from core.request_engine import RequestEngine
 
 class WAFDetector:
-    def __init__(self):
-        """Initialize WAF detector with common WAF signatures."""
+    def __init__(self, request_engine: RequestEngine):
+        """Initialize the WAF detector with a request engine."""
+        self.request_engine = request_engine
         self.waf_signatures = {
-            "cloudflare": [
-                r"cloudflare",
-                r"cf-ray",
-                r"cf-cache-status"
+            "mod_security": [
+                "ModSecurity",
+                "NOYB",
+                "Mod_Security",
+                "ModSecurity-nginx"
             ],
-            "modsecurity": [
-                r"mod_security",
-                r"modsecurity",
-                r"blocked by mod_security"
+            "cloudflare": [
+                "cf-ray",
+                "__cfduid",
+                "cloudflare-nginx",
+                "cf-cache-status"
             ],
             "akamai": [
-                r"akamai",
-                r"akamai-gtm"
+                "AkamaiGHost",
+                "Akamai",
+                "X-Akamai-Transformed"
             ],
-            "imperva": [
-                r"incapsula",
-                r"imperva"
+            "incapsula": [
+                "incap_ses",
+                "visid_incap",
+                "X-Iinfo"
             ],
             "f5": [
-                r"f5",
-                r"bigip"
+                "TS",
+                "F5_HT_shrinked",
+                "F5_HT_shrinked",
+                "F5-TrafficShield"
+            ],
+            "barracuda": [
+                "barra_counter_session",
+                "BNI__BarraCounterSession",
+                "BNI_persistence"
+            ],
+            "fortinet": [
+                "FORTIWAFSID",
+                "FORTIWAF",
+                "FortiWeb"
             ]
         }
-        
-    def detect(self, request_engine: RequestEngine) -> Dict[str, Any]:
-        """Detect WAF presence and type."""
+    
+    def detect(self) -> bool:
+        """Detect if target is protected by WAF."""
         try:
-            # Send test request
-            response, _ = request_engine.send_request()
+            # Send a request with a suspicious payload
+            payload = "' OR '1'='1"
+            response, _ = self.request_engine.send_request(payload)
             
-            if not response:
-                return {"detected": False, "type": "unknown"}
-                
-            # Check headers for WAF signatures
-            headers = response.headers
-            detected_wafs = []
+            # Check response headers for WAF signatures
+            if self._check_headers(response.headers):
+                return True
             
-            for waf_type, signatures in self.waf_signatures.items():
-                for signature in signatures:
-                    for header_name, header_value in headers.items():
-                        if re.search(signature, header_name.lower()) or re.search(signature, header_value.lower()):
-                            detected_wafs.append(waf_type)
-                            break
-                            
             # Check response body for WAF signatures
-            body = response.text.lower()
-            for waf_type, signatures in self.waf_signatures.items():
-                for signature in signatures:
-                    if re.search(signature, body):
-                        if waf_type not in detected_wafs:
-                            detected_wafs.append(waf_type)
-                            
-            return {
-                "detected": len(detected_wafs) > 0,
-                "type": detected_wafs[0] if detected_wafs else "unknown",
-                "all_types": detected_wafs
-            }
+            if self._check_body(response.text):
+                return True
+            
+            # Check response status code
+            if self._check_status_code(response.status_code):
+                return True
+            
+            return False
             
         except Exception as e:
             logging.error(f"WAF detection failed: {str(e)}")
-            return {"detected": False, "type": "unknown"}
+            return False
+    
+    def _check_headers(self, headers: Dict[str, str]) -> bool:
+        """Check response headers for WAF signatures."""
+        for waf_type, signatures in self.waf_signatures.items():
+            for signature in signatures:
+                for header_name, header_value in headers.items():
+                    if signature.lower() in header_value.lower():
+                        logging.info(f"Detected {waf_type} WAF in headers")
+                        return True
+        return False
+    
+    def _check_body(self, body: str) -> bool:
+        """Check response body for WAF signatures."""
+        waf_indicators = [
+            "blocked by",
+            "security policy",
+            "forbidden",
+            "access denied",
+            "security violation",
+            "mod_security",
+            "cloudflare",
+            "incapsula",
+            "akamai",
+            "f5",
+            "barracuda",
+            "fortinet"
+        ]
+        
+        for indicator in waf_indicators:
+            if indicator.lower() in body.lower():
+                logging.info(f"Detected WAF in response body: {indicator}")
+                return True
+        return False
+    
+    def _check_status_code(self, status_code: int) -> bool:
+        """Check response status code for WAF indicators."""
+        # Some WAFs return specific status codes
+        waf_status_codes = [403, 406, 419, 429, 503]
+        if status_code in waf_status_codes:
+            logging.info(f"Detected WAF based on status code: {status_code}")
+            return True
+        return False
+    
+    def get_waf_type(self) -> Optional[str]:
+        """Get the type of WAF if detected."""
+        try:
+            response, _ = self.request_engine.send_request()
+            
+            # Check headers for WAF type
+            for waf_type, signatures in self.waf_signatures.items():
+                for signature in signatures:
+                    for header_name, header_value in response.headers.items():
+                        if signature.lower() in header_value.lower():
+                            return waf_type
+            
+            # Check body for WAF type
+            for waf_type in self.waf_signatures.keys():
+                if waf_type.lower() in response.text.lower():
+                    return waf_type
+            
+            return None
+            
+        except Exception as e:
+            logging.error(f"Failed to get WAF type: {str(e)}")
+            return None
 
     def test_waf_bypass(self) -> List[Dict[str, Any]]:
         """Test various WAF bypass techniques."""
@@ -163,13 +231,13 @@ class WAFDetector:
         """Get recommendations based on WAF detection results."""
         recommendations = []
         
-        if not waf_detection["detected"]:
+        if not waf_detection:
             recommendations.append("No WAF detected. Consider implementing a WAF for better security.")
             return recommendations
             
-        waf_type = waf_detection["type"]
+        waf_type = self.get_waf_type()
         
-        if waf_type == "modsecurity":
+        if waf_type == "mod_security":
             recommendations.extend([
                 "ModSecurity detected. Consider updating to the latest version.",
                 "Review ModSecurity rules and adjust sensitivity if needed.",
@@ -181,11 +249,29 @@ class WAFDetector:
                 "Review Cloudflare security settings and rules.",
                 "Enable Cloudflare logging for better monitoring."
             ])
-        elif waf_type == "imperva":
+        elif waf_type == "incapsula":
             recommendations.extend([
-                "Imperva WAF detected. Consider updating to the latest version.",
-                "Review Imperva security policies and rules.",
-                "Enable Imperva logging for better monitoring."
+                "Incapsula WAF detected. Consider updating to the latest version.",
+                "Review Incapsula security policies and rules.",
+                "Enable Incapsula logging for better monitoring."
+            ])
+        elif waf_type == "f5":
+            recommendations.extend([
+                "F5 WAF detected. Consider updating to the latest version.",
+                "Review F5 security policies and rules.",
+                "Enable F5 logging for better monitoring."
+            ])
+        elif waf_type == "barracuda":
+            recommendations.extend([
+                "Barracuda WAF detected. Consider updating to the latest version.",
+                "Review Barracuda security policies and rules.",
+                "Enable Barracuda logging for better monitoring."
+            ])
+        elif waf_type == "fortinet":
+            recommendations.extend([
+                "Fortinet WAF detected. Consider updating to the latest version.",
+                "Review Fortinet security policies and rules.",
+                "Enable Fortinet logging for better monitoring."
             ])
         else:
             recommendations.append(f"Consider reviewing {waf_type} WAF configuration and rules.")
