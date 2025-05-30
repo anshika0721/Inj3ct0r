@@ -31,11 +31,16 @@ class RequestEngine:
         self.verify_ssl = verify_ssl
         self.session = requests.Session()
         
+        # Parse URL and get parameters
+        parsed_url = urlparse(url)
+        self.params = parse_qs(parsed_url.query)
+        self.params = {k: v[0] for k, v in self.params.items()}
+        
         # Set default headers if not provided
         if "User-Agent" not in self.headers:
             self.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     
-    def send_request(self, payload: Optional[str] = None, params: Optional[Dict[str, str]] = None, data: Optional[Dict[str, str]] = None) -> Tuple[requests.Response, float]:
+    def send_request(self, payload: Optional[str] = None, params: Optional[Dict[str, str]] = None, data: Optional[Dict[str, Any]] = None) -> Tuple[requests.Response, float]:
         """Send a request with optional payload and parameters."""
         try:
             # Prepare request data
@@ -50,7 +55,7 @@ class RequestEngine:
                 
             # Add payload if provided
             if payload:
-                if self.method.upper() == "GET":
+                if self.method == "GET":
                     # For GET requests, add payload to parameters
                     for param in request_params:
                         request_params[param] = request_params[param] + payload if request_params[param] else payload
@@ -61,7 +66,7 @@ class RequestEngine:
             
             # Send request based on method
             start_time = time.time()
-            if self.method.upper() == "GET":
+            if self.method == "GET":
                 response = requests.get(
                     self.url,
                     params=request_params,
@@ -90,25 +95,22 @@ class RequestEngine:
     
     def get_url_parameters(self) -> Dict[str, str]:
         """Get URL parameters."""
-        parsed_url = urlparse(self.url)
-        params = parse_qs(parsed_url.query)
-        return {k: v[0] for k, v in params.items()}
+        return self.params
     
     def get_parameters(self) -> Dict[str, str]:
         """Get all parameters (URL parameters and POST data)."""
-        params = self.get_url_parameters()
+        params = self.params.copy()
         if self.method == "POST" and self.data:
             params.update(self.data)
         return params
     
     def update_url_parameters(self, params: Dict[str, str]) -> None:
         """Update URL parameters."""
-        parsed_url = urlparse(self.url)
-        current_params = parse_qs(parsed_url.query)
-        current_params.update({k: [v] for k, v in params.items()})
+        self.params.update(params)
         
         # Reconstruct URL with updated parameters
-        new_query = urlencode(current_params, doseq=True)
+        parsed_url = urlparse(self.url)
+        new_query = urlencode(self.params, doseq=True)
         self.url = parsed_url._replace(query=new_query).geturl()
     
     def update_headers(self, headers: Dict[str, str]) -> None:
