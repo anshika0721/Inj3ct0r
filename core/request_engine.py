@@ -95,6 +95,13 @@ class RequestEngine:
         params = parse_qs(parsed_url.query)
         return {k: v[0] for k, v in params.items()}
     
+    def get_parameters(self) -> Dict[str, str]:
+        """Get all parameters (URL parameters and POST data)."""
+        params = self.get_url_parameters()
+        if self.method == "POST" and self.data:
+            params.update(self.data)
+        return params
+    
     def update_url_parameters(self, params: Dict[str, str]) -> None:
         """Update URL parameters."""
         parsed_url = urlparse(self.url)
